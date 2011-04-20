@@ -34,6 +34,7 @@
 #include "CharacterSet.h"
 #include "LexerModule.h"
 
+
 #ifdef SCI_NAMESPACE
 using namespace Scintilla;
 #endif
@@ -523,7 +524,6 @@ static void ColouriseRebolDoc(unsigned int startPos, int length, int initStyle, 
 	WordList &keywords4 = *keywordlists[3];
 	WordList &keywords5 = *keywordlists[4];
 	WordList &keywords6 = *keywordlists[5];
-	WordList &keywords7 = *keywordlists[6];
 
 	int ofs, skip;
 
@@ -759,7 +759,7 @@ static void ColouriseRebolDoc(unsigned int startPos, int length, int initStyle, 
 				sc.SetState(SCE_REBOL_BINARY);
 				sc.Forward(3);
 				unsigned int n = 0; //bits counter
-				do {
+				while (sc.More()) {
 					if (sc.ch == '1' || sc.ch == '0') {
 						n++;
 					} else if (sc.ch == '}') {
@@ -770,7 +770,7 @@ static void ColouriseRebolDoc(unsigned int startPos, int length, int initStyle, 
 						break;
 					}
 					sc.Forward();
-				} while (true);
+				}
 				sc.ForwardSetState(SCE_REBOL_DEFAULT);
 			} else if (
 				(ch1 == '#' && ch2 == '{') ||
@@ -785,7 +785,7 @@ static void ColouriseRebolDoc(unsigned int startPos, int length, int initStyle, 
 					sc.Forward(4);
 				}
 				unsigned int n = 0; //bytes counter
-				do {
+				while(sc.More()) {
 					if (sc.ch == '}') {
 						if (n % 2 != 0) sc.ChangeState(SCE_REBOL_INVALID);
 						break;
@@ -796,13 +796,13 @@ static void ColouriseRebolDoc(unsigned int startPos, int length, int initStyle, 
 						break;
 					}
 					sc.Forward();
-				} while (true);
+				}
 				sc.ForwardSetState(SCE_REBOL_DEFAULT);
 			} else if (ch1 == '6' && ch2 == '4' && ch3 == '#' && ch4 == '{') {
 				//base-64 binary like 64#{LmNvbSA8yw9CB0aGvXmgUkVCu2Uz934b}
 				sc.SetState(SCE_REBOL_BINARY);
 				sc.Forward(4);
-				do {
+				while(sc.More()) {
 					if (sc.ch == '}') {
 						break;
 					} else if (
@@ -819,7 +819,7 @@ static void ColouriseRebolDoc(unsigned int startPos, int length, int initStyle, 
 						break;
 					}
 					sc.Forward();
-				} while (true);
+				}
 				sc.ForwardSetState(SCE_REBOL_DEFAULT);
 			} else if( (ofs = isNumber(sc,0)) != 0) {
 				if (ofs > 0) {
