@@ -50,7 +50,7 @@
         .headerlinks {
             padding: 7px;
             background-color: #CCCCCC;
-	  border: 0px solid #FF0000;
+            border: 0px solid #FF0000;
             font-size: 120%;
         }
  </style>
@@ -70,9 +70,9 @@
     <table class="header" width="100%" summary="header">
       <tr>
         <td class="headerlinks">
-	  <a href="http://www.scintilla.org/SciTEFAQ.html">
+	  <a href="SciTEFAQ.html">
           Frequently Asked Questions</a>&nbsp;&nbsp;
-	  <a href="http://www.scintilla.org/SciTELua.html">
+	  <a href="SciTELua.html">
           Scripting</a>&nbsp;&nbsp;
 	  <a href="SciTERegEx.html">Regular Expressions</a>&nbsp;&nbsp;
         </td>
@@ -563,13 +563,10 @@ NameError: mistake
         <td>Expand or contract a fold point.</td><td>Ctrl+Keypad*</td>
       </tr>
       <tr>
-        <td>Create or delete a bookmark.</td><td>Ctrl+F2</td>
-      </tr>
-      <tr>
-        <td>Go to next bookmark.</td><td>F2</td>
-      </tr>
-      <tr>
         <td>Select to next bookmark.</td><td>Alt+F2</td>
+      </tr>
+      <tr>
+        <td>Select to previous bookmark.</td><td>Alt+Shift+F2</td>
       </tr>
       <tr>
         <td>Find selection.</td><td>Ctrl+F3</td>
@@ -638,6 +635,10 @@ NameError: mistake
         <td>Extend rectangular selection to end of line.</td><td>Alt+Shift+End</td>
       </tr>
     </table>
+    <p class="windowsonly">
+       On Windows, a search can be performed in the opposite direction by
+       using Shift+Enter in the Find or Replace strips or dialogs.
+    </p>
     <h3 id="Abbreviations">
        Abbreviations
     </h3>
@@ -665,8 +666,7 @@ NameError: mistake
        Some simple examples are included in the distributed Abbreviations file.<br />
        When expanding, the names don't need to be separated from the previous text.
        Ie. if you define 'é' as '&amp;eacute;', you can expand it inside a word.<br />
-       If a name is the ending of another one, only the shorter will ever be expanded.
-       Ie. if you define 'ring' and 'gathering', the later will see only the 'ring' part expanded.
+       When multiple abbreviation names match, the longest matching name will be expanded.
     </p>
     <h3 id="Folding">
        Folding
@@ -841,11 +841,18 @@ NameError: mistake
        c:\os\scite\bin\Lua.properties.
     </p>
     <p>
+       All of the properties files in a directory can be imported with "import *".
+       This does not import generic properties files like user properties or abbreviations.
+       The set of files that are imported can be controlled with the imports.include and imports.exclude
+       properties.
+    </p>
+    <p>
       The 'if' statement takes one argument which is a
       symbol that may be defined earlier in this property set file or in a base
       property set. If the symbol evaluates to '0' then the test fails. An empty
       string or not present symbol evaluates to 0. Into the very top property set
-      is inserted one of 'PLAT_GTK' with value '1' or 'PLAT_WIN' with value '1'.
+      is inserted one of 'PLAT_GTK' with value '1',
+      'PLAT_WIN' with value '1', or 'PLAT_MAC' with value '1'.
       If the test succeeds then following indented statements are executed. When a
       non-indented statement is found the if clause is finished. Only simple set
       statements are allowed in if clauses. The evaluation of if statements occurs
@@ -932,7 +939,7 @@ NameError: mistake
         global properties files. So after changing it, restart SciTE to see the effect.
         </td>
       </tr>
-      <tr class="windowsonly">
+      <tr>
         <td>
         buffers.zorder.switching
         </td>
@@ -1023,10 +1030,9 @@ NameError: mistake
           depends on your platform.
           You can overwrite this behaviour by setting the property to
           <div class="example">
-  LF   for UNIX format<br />
-  CR   for Macintosh format<br />
+  LF   for UNIX and OS X format<br />
+  CR   for Macintosh format prior to OS X<br />
   CRLF for DOS/Windows format</div>
-          As you see, Windows combines the best of the other worlds ;-)
         </td>
       </tr>
       <tr>
@@ -1094,13 +1100,19 @@ NameError: mistake
       </tr>
       <tr>
         <td>
-          tabbar.visible<br />
-        tabbar.hide.one
+          tabbar.visible
         </td>
         <td>
-          Setting tabbar.visible to 1 makes the tab bar visible at start up on Windows.
-        The buffers property must be set to a value greater than 1 for this option to work.
-        Setting tabbar.hide.one to 1 hides the tab bar until there is more than one tab.
+          Setting tabbar.visible to 1 makes the tab bar visible at start up.
+          The buffers property must be set to a value greater than 1 for this option to work.
+        </td>
+      </tr>
+      <tr>
+        <td>
+          tabbar.hide.one
+        </td>
+        <td>
+          Setting tabbar.hide.one to 1 hides the tab bar until there is more than one tab.
         </td>
       </tr>
       <tr class="windowsonly">
@@ -1146,14 +1158,6 @@ NameError: mistake
 	Setting pathbar.visible to 1 makes the path bar visible on GTK+.
         </td>
       </tr>
-      <tr class="gtkonly">
-        <td>
-          menubar.detachable
-        </td>
-        <td>
-          Setting this to 1 makes the menu bar detachable from the main window.
-        </td>
-      </tr>
       <tr>
         <td>
           undo.redo.lazy
@@ -1171,10 +1175,10 @@ NameError: mistake
           Setting this to 1 makes the status bar visible at start up.
         </td>
       </tr>
-      <tr class="windowsonly">
+      <tr>
         <td>
           statusbar.number<br />
-        statusbar.text.<i>number</i>
+          statusbar.text.<i>number</i>
         </td>
         <td>
         The statusbar.text.1 option defines the information displayed in the status bar
@@ -1187,21 +1191,9 @@ NameError: mistake
           You can also use file properties, which, unlike those above, are not updated
           on each keystroke: FileName or FileNameExt, FileDate and FileTime and
           FileAttr. Plus CurrentDate and CurrentTime.<br />
-        On Windows only, further texts may be set as statusbar.text.2 .. and these may be
+          On Windows only, further texts may be set as statusbar.text.2 .. and these may be
           cycled between by clicking the status bar.<br />
-        The statusbar.number option defines how many texts are to be cycled through.
-        </td>
-      </tr>
-      <tr class="windowsonly">
-        <td>
-          use.palette
-        </td>
-        <td>
-          Setting this to 1 makes SciTE use a palette to enable it to display more colours on 8 bit
-          displays. Without this option SciTE will only display with colours already available
-          which is normally the 20 colour Windows system palette. The downside of turning on this
-          option is that there will be some flashing as windows are activated. This option has no
-          effect on GTK+ where a palette is always used.
+          The statusbar.number option defines how many texts are to be cycled through.
         </td>
       </tr>
       <tr>
@@ -1229,6 +1221,15 @@ NameError: mistake
         fixes this by drawing all the backgrounds first and then drawing the text in
         transparent mode. Two phase drawing may flicker more than single phase
         unless buffered drawing is on. The default is for drawing to be two phase.
+        </td>
+      </tr>
+      <tr class="windowsonly">
+        <td>
+          technology
+        </td>
+        <td>
+        On Windows Vista or newer, this can be set to 1 to use the Direct2D and DirectWrite APIs
+        for higher quality antialiased drawing. The default is 0.
         </td>
       </tr>
       <tr>
@@ -1291,6 +1292,29 @@ NameError: mistake
       </tr>
       <tr>
         <td>
+          open.asynchronous
+        </td>
+        <td>
+          This setting controls whether files can be opened without blocking the user interface
+	while they are being read. The default value 1 allows background reading in many
+	cases. All background reading is turned off with <span class="example">open.asynchronous=0</span>.
+        </td>
+      </tr>
+      <tr class="windowsonly">
+        <td>
+          temp.files.sync.load
+        </td>
+        <td>
+          Files dropped on SciTE on Windows are normally opened asynchronously
+	as there may be a long list. However, files dragged from some applications
+	such as 7-Zip may only exist for a moment in the temporary directory and
+	be deleted once the drop has occurred.<br />
+	Setting this to 1 makes SciTE open dropped files in the temporary directory
+	immediately.
+        </td>
+      </tr>
+      <tr>
+        <td>
            quit.on.close.last
         </td>
         <td>
@@ -1298,6 +1322,28 @@ NameError: mistake
         closed, e.g. with File/Close.  (By default, if this option is not set,
         SciTE will remain open and will create a new blank document when its
         last buffer is closed.)
+        </td>
+      </tr>
+      <tr>
+        <td>
+           highlight.current.word
+        </td>
+        <td>
+	When set to 1, all occurrences of the selected word are highlighted with the
+	colour defined by highlight.current.word.colour. By default, this option is disabled. (See indicators.alpha and indicators.under)
+        </td>
+      </tr>
+      <tr>
+        <td>
+	   highlight.current.word.colour<br />
+	   highlight.current.word.by.style
+        </td>
+        <td>
+	The option highlight.current.word.colour defines the colour of highlight.
+	The default value is #A0A000.<br />
+	If the option highlight.current.word.by.style is set, then only words with the same style
+        are highlighted (e.g. if you select this word in a comment, then only occurrences of words in
+	comments are selected).
         </td>
       </tr>
       <tr class="gtkonly">
@@ -1496,6 +1542,21 @@ NameError: mistake
        </tr>
       <tr>
         <td>
+          error.inline<br />
+          style.error.0<br />
+          style.error.1<br />
+          style.error.2<br />
+          style.error.3
+        </td>
+        <td>
+          To see error messages interspersed with the source code, set error.inline=1.<br />
+          Different visual styles are used for different severities: style.error.0 is the default;
+          style.error.1 for warnings; style.error.2 for errors; and style.error.3 for fatal errors.
+          The severity of a message is inferred from finding the text "warning", "error", or "fatal" in the message.
+        </td>
+       </tr>
+      <tr>
+        <td>
           bookmark.fore<br />
           bookmark.back<br />
           bookmark.alpha
@@ -1512,7 +1573,25 @@ NameError: mistake
         </td>
         <td>
           If set, then the Mark All command in the Find dialog will draw translucent boxes over
-		    each string found.
+		    each string found. (See indicators.alpha and indicators.under)
+        </td>
+       </tr>
+       <tr>
+        <td>
+          indicators.alpha
+        </td>
+        <td>
+           This property defines the alpha level for indicators (default value is 30).
+	   The alpha value can range from 0 (completely transparent) to 255 (no transparency).
+	   A value out of this range is ignored and the default one is used.
+        </td>
+       </tr>
+       <tr>
+        <td>
+          indicators.under
+        </td>
+        <td>
+          If set, the indicators are drawn under text or over (by default, it is over).
         </td>
        </tr>
        <tr>
@@ -1533,7 +1612,7 @@ NameError: mistake
         <td>Defines a path for the Open Selected Filename command in the File
         menu. The path is searched if the selected filename doesn't contain an
         absolute path or the file is not found in the document directory. The
-        directories in openpath are separated by ';' on Windows and ':' on GTK+.<br />
+        directories in openpath are separated by ';' on Windows and ':' on OS X and GTK+.<br />
         An openpath setting may look like:
         <div class="example">
         openpath.*.txt=c:\dos\;f:\;<br />
@@ -1808,10 +1887,6 @@ NameError: mistake
 	<td>This option enables folding multi-line comments and explicit fold points when using the C++ lexer. Explicit fold points allows adding extra folding by placing a //{ comment at the start and a //} at the end of a section that should fold.</td>
 	</tr>
 	<tr>
-	<td>fold.comment.python</td>
-	<td>This option enables folding multi-line comments when using the Python lexer.</td>
-	</tr>
-	<tr>
 	<td>fold.cpp.comment.explicit</td>
 	<td>Set this property to 0 to disable folding explicit fold points when fold.comment=1.</td>
 	</tr>
@@ -1876,12 +1951,20 @@ NameError: mistake
 	<td>Allow folding for heredocs in scripts embedded in HTML. The default is off.</td>
 	</tr>
 	<tr>
+	<td>fold.perl.at.else</td>
+	<td>This option enables Perl folding on a "} else {" line of an if statement.</td>
+	</tr>
+	<tr>
+	<td>fold.perl.comment.explicit</td>
+	<td>Set to 0 to disable explicit folding.</td>
+	</tr>
+	<tr>
 	<td>fold.perl.package</td>
-	<td>Enable folding packages when using the Perl lexer.</td>
+	<td>Set to 0 to disable folding packages when using the Perl lexer.</td>
 	</tr>
 	<tr>
 	<td>fold.perl.pod</td>
-	<td>Enable folding Pod blocks when using the Perl lexer.</td>
+	<td>Set to 0 to disable folding Pod blocks when using the Perl lexer.</td>
 	</tr>
 	<tr>
 	<td>fold.preprocessor</td>
@@ -1890,6 +1973,10 @@ NameError: mistake
 	<tr>
 	<td>fold.quotes.python</td>
 	<td>This option enables folding multi-line quoted strings when using the Python lexer.</td>
+	</tr>
+	<tr>
+	<td>fold.sql.at.else</td>
+	<td>This option enables SQL folding on a "ELSE" and "ELSIF" line of an IF statement.</td>
 	</tr>
 	<tr>
 	<td>html.tags.case.sensitive</td>
@@ -1904,8 +1991,16 @@ NameError: mistake
 	<td>Set to 0 to disallow the '$' character in identifiers with the cpp lexer.</td>
 	</tr>
 	<tr>
+	<td>lexer.cpp.hashquoted.strings</td>
+	<td>Set to 1 to enable highlighting of hash-quoted strings.</td>
+	</tr>
+	<tr>
 	<td>lexer.cpp.track.preprocessor</td>
 	<td>Set to 1 to interpret #if/#else/#endif to grey out code that is not active.</td>
+	</tr>
+	<tr>
+	<td>lexer.cpp.triplequoted.strings</td>
+	<td>Set to 1 to enable highlighting of triple-quoted strings.</td>
 	</tr>
 	<tr>
 	<td>lexer.cpp.update.preprocessor</td>
@@ -1936,6 +2031,10 @@ NameError: mistake
 	<td>For properties files, set to 0 to style all lines that start with whitespace in the default style. This is not suitable for SciTE .properties files which use indentation for flow control but can be used for RFC2822 text where indentation is used for continuation lines.</td>
 	</tr>
 	<tr>
+	<td>lexer.python.keywords2.no.sub.identifiers</td>
+	<td>When enabled, it will not style keywords2 items that are used as a sub-identifier. Example: when set, will not highlight "foo.open" when "open" is a keywords2 item.</td>
+	</tr>
+	<tr>
 	<td>lexer.python.literals.binary</td>
 	<td>Set to 0 to not recognise Python 3 binary and octal literals: 0b1011 0o712.</td>
 	</tr>
@@ -1954,10 +2053,6 @@ NameError: mistake
 	<tr>
 	<td>lexer.sql.allow.dotted.word</td>
 	<td>Set to 1 to colourise recognized words with dots (recommended for Oracle PL/SQL objects).</td>
-	</tr>
-	<tr>
-	<td>lexer.sql.fold.at.else</td>
-	<td>This option enables SQL folding on a "ELSE" and "ELSIF"line of an IF statement.</td>
 	</tr>
 	<tr>
 	<td>lexer.sql.numbersign.comment</td>
@@ -2196,7 +2291,6 @@ Prev File|IDM_PREVFILE|<br/>
           items out, one per line. These file types appear in the "Files of type:" pull down. The
           first item is the default, so you may wish to change the first item to include the file
           types you commonly open.<br />
-          On GTK+, this option only works for GTK+ 2.4 or later.
         </td>
       </tr>
       <tr class="windowsonly">
@@ -2228,7 +2322,7 @@ Prev File|IDM_PREVFILE|<br/>
           save.deletes.first
         </td>
         <td>
-          Causes files to be deleted before being opened for saving. Can be used on Windows
+          Causes files to be deleted before being opened for saving. Can be used
           to ensure saving under a different capitalisation changes the files capitalisation rather
           than silently using the old capitalisation.
         </td>
@@ -2284,10 +2378,7 @@ Prev File|IDM_PREVFILE|<br/>
         <td>
           Setting open.dialog.in.file.directory causes the open dialog to initially
           display the same directory as the current file. If it is not set then the
-          system default is used which on Windows XP is the last directory
-          visited by the open dialog in any instance of SciTE. This is hard
-          to use with multiple instances of SciTE. <br />
-	  	  Some versions of GTK+ may also set an unexpected directory.
+          system default is used.
         </td>
       </tr>
       <tr class="windowsonly">
@@ -2456,8 +2547,8 @@ c:\cygwin\bin\xargs -0 fgrep -G -n "$(find.what)"
         Setting code.page to 65001 starts Unicode mode and the document is treated as
         a sequence of characters expressed as UTF-8. Display is performed by converting to the
         platform's normal Unicode encoding first so characters from any language will be displayed.
-        Correct glyphs will only be displayed if fonts are chosen that contain the appropriate glyphs.
-        Tahoma is a good choice on Windows XP. <br/>
+        Correct glyphs may only be displayed if fonts are chosen that contain the appropriate glyphs.
+        The Tahoma font contains a wide range of glyphs so may be a good choice. <br/>
         This property can <em>not</em> set a single byte character set.<br />
 	If output.code.page is set then it is used for the output pane which otherwise
 	matches the edit pane.
@@ -2489,10 +2580,47 @@ c:\cygwin\bin\xargs -0 fgrep -G -n "$(find.what)"
 	  <tr class="gtkonly"><td>Cyrillic (CP1251 on GTK+)</td><td align="right">1251</td></tr>
 	  <tr class="gtkonly"><td>European with Euro (ISO 8859-15)</td><td align="right">1000</td></tr>
 	  </table>
-        All of these values except for 1251 and 1000 may work on Windows, but on GTK+ Baltic, Turkish, Thai and Vietnamese
-        will probably not work.
-        Please send email if you use one of these settings and it works or doesn't or if you
-        have information on how to support other languages.
+        All of these values except for 1251 and 1000 should work on OS X or Windows.
+        On GTK+ Baltic, Turkish, Thai and Vietnamese will probably not work.
+        </td>
+      </tr>
+      <tr>
+        <td>
+          imports.include<br />
+          imports.exclude
+        </td>
+        <td>
+          These settings control which files are imported by import statements.<br/>
+	The imports.include property defines the names of the properties
+	files that may be imported. Say you are only interested in using
+	fortran and lisp, then in user properties, you could set<br />
+	<div class="example">
+imports.include=fortran lisp
+	</div>
+	The imports.exclude property is examined only if imports.include is empty or missing.
+	This property stops the named files from being imported.
+        </td>
+      </tr>
+      <tr>
+        <td>
+        command.discover.properties
+        </td>
+        <td>
+        This property can be used to run a program to determine file encoding and other properties
+        when a file is loaded.<br />
+        The program should print a list of property=value lines for each property it wants to set.
+        This is the same format as properties files.<br />
+        <div class="example">
+	      command.discover.properties=python /home/user/FileDetect.py "$(FilePath)"
+         </div>
+        A simple Python script that recognises a particular tag that indicates the file is in the Korean code page 949:<br />
+        <div class="example">
+<span><span class="S5">import</span><span class="S0"> </span>sys<br />
+<span class="S5">if</span><span class="S0"> </span><span class="S3">"Language:Korean"</span><span class="S0"> </span><span class="S5">in</span><span class="S0"> </span>open<span class="S10">(</span>sys<span class="S10">.</span>argv<span class="S10">[</span><span class="S2">1</span><span class="S10">]).</span>read<span class="S10">():</span><br />
+<span class="S0">&nbsp; &nbsp; &nbsp; &nbsp; </span><span class="S5">print</span><span class="S10">(</span><span class="S4">'code.page=949'</span><span class="S10">)</span><br />
+<span class="S0">&nbsp; &nbsp; &nbsp; &nbsp; </span><span class="S5">print</span><span class="S10">(</span><span class="S4">'character.set=129'</span><span class="S10">)</span><br />
+<span class="S0"></span></span>
+         </div>
         </td>
       </tr>
       <tr>
@@ -2648,16 +2776,18 @@ c:\cygwin\bin\xargs -0 fgrep -G -n "$(find.what)"
           each lexer.<br />
            The value of each setting is a set of ',' separated fields, some of which have a
           subvalue after a ':'. The fields are font, size, fore, back, italics, notitalics, bold,
-          notbold, eolfilled, noteolfilled, underlined, notunderlined, and case.
+          notbold, weight, eolfilled, noteolfilled, underlined, notunderlined, and case.
         The font field has a subvalue which is the name of
-          the font, the fore and back have colour subvalues, the size field has a numeric size
-          subvalue, the case field has a subvalue of 'm', 'u', or 'l' for mixed, upper or lower case,
-        and the bold, italics and eolfilled fields have no subvalue. The value
+          the font, the fore and back have colour subvalues,
+          the size field has a (fractional) numeric size subvalue,
+          the weight field has a numeric size subvalue (1.. 999: 100=light, 400=normal, 700=bold),
+          the case field has a subvalue of 'm', 'u', or 'l' for mixed, upper or lower case,
+          and the bold, italics and eolfilled fields have no subvalue. The value
           "fore:#FF0000,font:Courier,size:14" represents 14 point, red Courier text.<br />
            A global style can be set up using style.*.<i>stylenumber</i>. Any style options set in
           the global style will be inherited by each lexer style unless overridden.<br />
-	On GTK+ 2, Pango anti-aliased fonts can be chosen by prefixing the font name with "!",
-	such as "font:!Sans".
+	On GTK+, the font name should be prefixed with "!" such as "font:!Sans" to ensure Pango
+	anti-aliased fonts are used. If this is not done, an older font system will be used which may not work well.
         </td>
       </tr>
       <tr>
@@ -2729,8 +2859,7 @@ c:\cygwin\bin\xargs -0 fgrep -G -n "$(find.what)"
         </td>
         <td>
           These settings choose which commands to execute when the Compile, Build or Go menu items
-          are selected. The subsystem options determine for Windows whether the tools are run as
-          command line(0), windowed(1), through ShellExecute(2), or through the director interface(3).<br />
+          are selected. The subsystem options are explained in the subsystem section.<br />
         When source files are in a different directory to that they should be built in, the
         command.build.directory property can be set to change to a particular directory before performing
         the build.
@@ -2855,7 +2984,7 @@ groupundo - yes or no
         <td>
         Defines a command to be executed when the help command is
         invoked or F1 pressed. On Windows, this often uses subsystem 4 as described above.
-        On Linux, running man or a browser are common ways of displaying help.
+        On OS X or Linux, running man or a browser are common ways of displaying help.
         The word at the cursor is copied to $(CurrentWord) and this is often a good argument
         to the help application. The subsystem property works in the same way as for other
         commands.
@@ -3118,6 +3247,24 @@ groupundo - yes or no
       </tr>
       <tr>
         <td>
+          fold.highlight<br />
+        </td>
+        <td>
+        Set to 1 to enable highlight for current folding block (smallest one that contains the caret).
+	By default, it's disable. Note : The highlight is enabled only when fold.symbols equals
+	to 2 (round headers) or 3 (square headers).
+        </td>
+      </tr>
+      <tr>
+        <td>
+          fold.highlight.colour<br />
+        </td>
+        <td>
+        Define the colour of highlight. The colour by default is red (#FF0000).
+        </td>
+      </tr>
+      <tr>
+        <td>
           title.full.path
         </td>
         <td>
@@ -3228,6 +3375,26 @@ groupundo - yes or no
       </tr>
       <tr>
         <td>
+        indent.python.colon
+        </td>
+        <td>
+          For Python, automatically indent by one level if the previous line ended in a ':'
+	ignoring comments and whitespace. Otherwise use the same indentation as the previous line.
+	This property overrides other indentation settings.
+         </td>
+      </tr>
+      <tr>
+        <td>
+          os.x.home.end.keys
+        </td>
+        <td>
+	Chooses the standard OS X behaviour for the Home and End keys which is
+	to scroll the file to the start or end. This setting takes precedence over
+	vc.home.key.
+        </td>
+      </tr>
+      <tr>
+        <td>
           vc.home.key
         </td>
         <td>
@@ -3273,18 +3440,9 @@ groupundo - yes or no
           fileselector.height
         </td>
         <td>
-                For the GTK+ version determines the initial size of the file
-        selector dialog invoked by the Open and Save commands.
-        Setting has no effect on Windows.
-        </td>
-      </tr>
-      <tr class="gtkonly">
-        <td>
-          fileselector.show.hidden
-        </td>
-        <td>
-		On GTK+ setting this to 1 makes the file selector dialog
-		invoked by the Open command show hidden files automatically.
+          For the GTK+ version determines the initial size of the file
+          selector dialog invoked by the Open and Save commands.
+          Setting has no effect on Windows.
         </td>
       </tr>
       <tr>

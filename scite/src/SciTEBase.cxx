@@ -2,7 +2,7 @@
 /** @file SciTEBase.cxx
  ** Platform independent base class of editor.
  **/
-// Copyright 1998-2010 by Neil Hodgson <neilh@scintilla.org>
+// Copyright 1998-2011 by Neil Hodgson <neilh@scintilla.org>
 // The License.txt file describes the conditions under which this software may be distributed.
 
 #include <stdlib.h>
@@ -14,12 +14,9 @@
 #include <sys/stat.h>
 #include <time.h>
 
-#ifdef _MSC_VER
-#pragma warning(disable: 4786)
-#endif
-
 #include <string>
 #include <vector>
+#include <set>
 #include <map>
 #include <algorithm>
 
@@ -57,6 +54,7 @@
 
 #include "Scintilla.h"
 #include "SciLexer.h"
+#include "ILexer.h"
 
 #include "GUI.h"
 #include "SString.h"
@@ -71,298 +69,6 @@
 #include "JobQueue.h"
 
 #include "SciTEBase.h"
-
-// Contributor names are in UTF-8
-const char *contributors[] = {
-            "Atsuo Ishimoto",
-            "Mark Hammond",
-            "Francois Le Coguiec",
-            "Dale Nagata",
-            "Ralf Reinhardt",
-            "Philippe Lhoste",
-            "Andrew McKinlay",
-            "Stephan R. A. Deibel",
-            "Hans Eckardt",
-            "Vassili Bourdo",
-            "Maksim Lin",
-            "Robin Dunn",
-            "John Ehresman",
-            "Steffen Goeldner",
-            "Deepak S.",
-            "DevelopMentor http://www.develop.com",
-            "Yann Gaillard",
-            "Aubin Paul",
-            "Jason Diamond",
-            "Ahmad Baitalmal",
-            "Paul Winwood",
-            "Maxim Baranov",
-#if defined(GTK)
-            "Icons Copyright(C) 1998 by Dean S. Jones",
-            "    http://jfa.javalobby.org/projects/icons/",
-#endif
-            "Ragnar H\xc3\xb8jland",
-            "Christian Obrecht",
-            "Andreas Neukoetter",
-            "Adam Gates",
-            "Steve Lhomme",
-            "Ferdinand Prantl",
-            "Jan Dries",
-            "Markus Gritsch",
-            "Tahir Karaca",
-            "Ahmad Zawawi",
-            "Laurent le Tynevez",
-            "Walter Braeu",
-            "Ashley Cambrell",
-            "Garrett Serack",
-            "Holger Schmidt",
-            "ActiveState http://www.activestate.com",
-            "James Larcombe",
-            "Alexey Yutkin",
-            "Jan Hercek",
-            "Richard Pecl",
-            "Edward K. Ream",
-            "Valery Kondakoff",
-            "Sm\xc3\xa1ri McCarthy",
-            "Clemens Wyss",
-            "Simon Steele",
-            "Serge A. Baranov",
-            "Xavier Nodet",
-            "Willy Devaux",
-            "David Clain",
-            "Brendon Yenson",
-            "Vamsi Potluru http://www.baanboard.com",
-            "Praveen Ambekar",
-            "Alan Knowles",
-            "Kengo Jinno",
-            "Valentin Valchev",
-            "Marcos E. Wurzius",
-            "Martin Alderson",
-            "Robert Gustavsson",
-            "Jos\xc3\xa9 Fonseca",
-            "Holger Kiemes",
-            "Francis Irving",
-            "Scott Kirkwood",
-            "Brian Quinlan",
-            "Ubi",
-            "Michael R. Duerig",
-            "Deepak T",
-            "Don Paul Beletsky",
-            "Gerhard Kalab",
-            "Olivier Dagenais",
-            "Josh Wingstrom",
-            "Bruce Dodson",
-            "Sergey Koshcheyev",
-            "Chuan-jian Shen",
-            "Shane Caraveo",
-            "Alexander Scripnik",
-            "Ryan Christianson",
-            "Martin Steffensen",
-            "Jakub Vr\xc3\xa1na",
-            "The Black Horus",
-            "Bernd Kreuss",
-            "Thomas Lauer",
-            "Mike Lansdaal",
-            "Yukihiro Nakai",
-            "Jochen Tucht",
-            "Greg Smith",
-            "Steve Schoettler",
-            "Mauritius Thinnes",
-            "Darren Schroeder",
-            "Pedro Guerreiro",
-            "Steven te Brinke",
-            "Dan Petitt",
-            "Biswapesh Chattopadhyay",
-            "Kein-Hong Man",
-            "Patrizio Bekerle",
-            "Nigel Hathaway",
-            "Hrishikesh Desai",
-            "Sergey Puljajev",
-            "Mathias Rauen",
-            "Angelo Mandato http://www.spaceblue.com",
-            "Denis Sureau",
-            "Kaspar Schiess",
-            "Christoph H\xc3\xb6sler",
-            "Jo\xc3\xa3o Paulo F Farias",
-            "Ron Schofield",
-            "Stefan Wosnik",
-            "Marius Gheorghe",
-            "Naba Kumar",
-            "Sean O'Dell",
-            "Stefanos Togoulidis",
-            "Hans Hagen",
-            "Jim Cape",
-            "Roland Walter",
-            "Brian Mosher",
-            "Nicholas Nemtsev",
-            "Roy Wood",
-            "Peter-Henry Mander",
-            "Robert Boucher",
-            "Christoph Dalitz",
-            "April White",
-            "S. Umar",
-            "Trent Mick",
-            "Filip Yaghob",
-            "Avi Yegudin",
-            "Vivi Orunitia",
-            "Manfred Becker",
-            "Dimitris Keletsekis",
-            "Yuiga",
-            "Davide Scola",
-            "Jason Boggs",
-            "Reinhold Niesner",
-            "Jos van der Zande",
-            "Pescuma",
-            "Pavol Bosik",
-            "Johannes Schmid",
-            "Blair McGlashan",
-            "Mikael Hultgren",
-            "Florian Balmer",
-            "Hadar Raz",
-            "Herr Pfarrer",
-            "Ben Key",
-            "Gene Barry",
-            "Niki Spahiev",
-            "Carsten Sperber",
-            "Phil Reid",
-            "Iago Rubio",
-            "R\xc3\xa9gis Vaquette",
-            "Massimo Cor\xc3\xa0",
-            "Elias Pschernig",
-            "Chris Jones",
-            "Josiah Reynolds",
-            "Robert Roessler http://www.rftp.com",
-            "Steve Donovan",
-            "Jan Martin Pettersen",
-            "Sergey Philippov",
-            "Borujoa",
-            "Michael Owens",
-            "Franck Marcia",
-            "Massimo Maria Ghisalberti",
-            "Frank Wunderlich",
-            "Josepmaria Roca",
-            "Tobias Engvall",
-            "Suzumizaki Kimitaka",
-            "Michael Cartmell",
-            "Pascal Hurni",
-            "Andre",
-            "Randy Butler",
-            "Georg Ritter",
-            "Michael Goffioul",
-            "Ben Harper",
-            "Adam Strzelecki",
-            "Kamen Stanev",
-            "Steve Menard",
-            "Oliver Yeoh",
-            "Eric Promislow",
-            "Joseph Galbraith",
-            "Jeffrey Ren",
-            "Armel Asselin",
-            "Jim Pattee",
-            "Friedrich Vedder",
-            "Sebastian Pipping",
-            "Andre Arpin",
-            "Stanislav Maslovski",
-            "Martin Stone",
-            "Fabien Proriol",
-            "mimir",
-            "Nicola Civran",
-            "Snow",
-            "Mitchell Foral",
-            "Pieter Holtzhausen",
-            "Waldemar Augustyn",
-            "Jason Haslam",
-            "Sebastian Steinlechner",
-            "Chris Rickard",
-            "Rob McMullen",
-            "Stefan Schwendeler",
-            "Cristian Adam",
-            "Nicolas Chachereau",
-            "Istvan Szollosi",
-            "Xie Renhui",
-            "Enrico Tr\xc3\xb6ger",
-            "Todd Whiteman",
-            "Yuval Papish",
-            "instanton",
-            "Sergio Lucato",
-            "VladVRO",
-            "Dmitry Maslov",
-            "chupakabra",
-            "Juan Carlos Arevalo Baeza",
-            "Nick Treleaven",
-            "Stephen Stagg",
-            "Jean-Paul Iribarren",
-            "Tim Gerundt",
-            "Sam Harwell",
-            "Boris",
-            "Jason Oster",
-            "Gertjan Kloosterman",
-            "alexbodn",
-            "Sergiu Dotenco",
-            "Anders Karlsson",
-            "ozlooper",
-            "Marko Njezic",
-            "Eugen Bitter",
-            "Christoph Baumann",
-            "Christopher Bean",
-            "Sergey Kishchenko",
-            "Kai Liu",
-            "Andreas Rumpf",
-            "James Moffatt",
-            "Yuzhou Xin",
-            "Nic Jansma",
-            "Evan Jones",
-            "Mike Lischke",
-            "Eric Kidd",
-            "maXmo",
-            "David Severwright",
-            "Jon Strait",
-            "Oliver Kiddle",
-            "Etienne Girondel",
-            "Haimag Ren",
-            "Andrey Moskalyov",
-            "Xavi",
-            "Toby Inkster",
-            "Eric Forgeot",
-            "Colomban Wendling",
-            "Neo",
-            "Jordan Russell",
-            "Farshid Lashkari",
-            "Sam Rawlins",
-            "Michael Mullin",
-            "Carlos SS",
-            "vim",
-            "Martial Demolins",
-            "Tino Weinkauf",
-            "J\xc3\xa9r\xc3\xb4me Laforge",
-            "Udo Lechner",
-            "Marco Falda",
-            "Dariusz Knoci\xc5\x84ski",
-            "Ben Fisher",
-        };
-
-// AddStyledText only called from About so static size buffer is OK
-void AddStyledText(GUI::ScintillaWindow &wsci, const char *s, int attr) {
-	char buf[1000];
-	size_t len = strlen(s);
-	for (size_t i = 0; i < len; i++) {
-		buf[i*2] = s[i];
-		buf[i*2 + 1] = static_cast<char>(attr);
-	}
-	wsci.SendPointer(SCI_ADDSTYLEDTEXT,
-	        static_cast<int>(len*2), const_cast<char *>(buf));
-}
-
-void SetAboutStyle(GUI::ScintillaWindow &wsci, int style, Colour fore) {
-	wsci.Send(SCI_STYLESETFORE, style, fore);
-}
-
-static void HackColour(int &n) {
-	n += (rand() % 100) - 50;
-	if (n > 0xE7)
-		n = 0x60;
-	if (n < 0)
-		n = 0x80;
-}
 
 Searcher::Searcher() {
 	wholeWord = false;
@@ -481,7 +187,6 @@ SciTEBase::SciTEBase(Extension *ext) : apis(true), extender(ext) {
 	lineNumbers = false;
 	lineNumbersWidth = lineNumbersWidthDefault;
 	lineNumbersExpand = false;
-	usePalette = false;
 
 	abbrevInsert[0] = '\0';
 
@@ -498,7 +203,8 @@ SciTEBase::SciTEBase(Extension *ext) : apis(true), extender(ext) {
 	propsUser.superPS = &propsBase;
 	propsDirectory.superPS = &propsUser;
 	propsLocal.superPS = &propsDirectory;
-	props.superPS = &propsLocal;
+	propsDiscovered.superPS = &propsLocal;
+	props.superPS = &propsDiscovered;
 
 	propsStatus.superPS = &props;
 
@@ -513,7 +219,13 @@ SciTEBase::~SciTEBase() {
 	popup.Destroy();
 }
 
-sptr_t SciTEBase::CallFocused(unsigned int msg, uptr_t wParam, sptr_t lParam) {
+void SciTEBase::WorkerCommand(int cmd, Worker *pWorker) {
+	if (cmd == WORK_FILEREAD) {
+		TextRead(static_cast<FileLoader *>(pWorker));
+	}
+}
+
+int SciTEBase::CallFocused(unsigned int msg, uptr_t wParam, sptr_t lParam) {
 	if (wOutput.HasFocus())
 		return wOutput.Call(msg, wParam, lParam);
 	else
@@ -541,83 +253,6 @@ SString SciTEBase::GetTranslationToAbout(const char * const propname, bool retai
 	// On GTK+, localiser.Text always converts to UTF-8.
 	return SString(localiser.Text(propname, retainIfNotFound).c_str());
 #endif
-}
-
-void SciTEBase::SetAboutMessage(GUI::ScintillaWindow &wsci, const char *appTitle) {
-	if (wsci.Created()) {
-		wsci.Send(SCI_SETSTYLEBITS, 7, 0);
-		wsci.Send(SCI_STYLERESETDEFAULT, 0, 0);
-		int fontSize = 15;
-#if defined(GTK)
-		wsci.Send(SCI_STYLESETFONT, STYLE_DEFAULT,
-		        reinterpret_cast<uptr_t>("!Serif"));
-		fontSize = 14;
-#endif
-
-		wsci.Send(SCI_SETCODEPAGE, SC_CP_UTF8, 0);
-
-		wsci.Send(SCI_STYLESETSIZE, STYLE_DEFAULT, fontSize);
-		wsci.Send(SCI_STYLESETBACK, STYLE_DEFAULT, ColourRGB(0xff, 0xff, 0xff));
-		wsci.Send(SCI_STYLECLEARALL, 0, 0);
-
-		SetAboutStyle(wsci, 0, ColourRGB(0xff, 0xff, 0xff));
-		wsci.Send(SCI_STYLESETSIZE, 0, fontSize);
-		wsci.Send(SCI_STYLESETBACK, 0, ColourRGB(0, 0, 0x80));
-		AddStyledText(wsci, appTitle, 0);
-		AddStyledText(wsci, "\n", 0);
-		SetAboutStyle(wsci, 1, ColourRGB(0, 0, 0));
-		int trsSty = 5; // define the stylenumber to assign font for translators.
-		SString translator = GetTranslationToAbout("TranslationCredit", false);
-		SetAboutStyle(wsci, trsSty, ColourRGB(0, 0, 0));
-#if !defined(GTK)
-		// On Windows Me (maybe 9x also), we must assign another font to display translation.
-		if (translator.length()) {
-			SString fontBase = props.GetExpanded("font.translators");
-			StyleDefinition sd(fontBase.c_str());
-			if (sd.specified & StyleDefinition::sdFont) {
-				wsci.Send(SCI_STYLESETFONT, trsSty,
-				        reinterpret_cast<uptr_t>(sd.font.c_str()));
-			}
-			if (sd.specified & StyleDefinition::sdSize) {
-				wsci.Send(SCI_STYLESETSIZE, trsSty, sd.size);
-			}
-		}
-#endif
-		AddStyledText(wsci, GetTranslationToAbout("Version").c_str(), trsSty);
-		AddStyledText(wsci, " 2.25\n", 1);
-		AddStyledText(wsci, "    " __DATE__ " " __TIME__ "\n", 1);
-		SetAboutStyle(wsci, 2, ColourRGB(0, 0, 0));
-		wsci.Send(SCI_STYLESETITALIC, 2, 1);
-		AddStyledText(wsci, GetTranslationToAbout("by").c_str(), trsSty);
-		AddStyledText(wsci, " Neil Hodgson.\n", 2);
-		SetAboutStyle(wsci, 3, ColourRGB(0, 0, 0));
-		AddStyledText(wsci, "December 1998-March 2011.\n", 3);
-		SetAboutStyle(wsci, 4, ColourRGB(0, 0x7f, 0x7f));
-		AddStyledText(wsci, "http://www.scintilla.org\n", 4);
-		AddStyledText(wsci, "Lua scripting language by TeCGraf, PUC-Rio\n", 3);
-		AddStyledText(wsci, "    http://www.lua.org\n", 4);
-		if (translator.length()) {
-			AddStyledText(wsci, translator.c_str(), trsSty);
-			AddStyledText(wsci, "\n", 5);
-		}
-		AddStyledText(wsci, GetTranslationToAbout("Contributors:").c_str(), trsSty);
-		srand(static_cast<unsigned>(time(0)));
-		for (unsigned int co = 0;co < ELEMENTS(contributors);co++) {
-			int colourIndex = 50 + (co % 78);
-			AddStyledText(wsci, "\n    ", colourIndex);
-			AddStyledText(wsci, contributors[co], colourIndex);
-		}
-		int r = rand() % 256;
-		int g = rand() % 256;
-		int b = rand() % 256;
-		for (unsigned int sty = 0;sty < 78; sty++) {
-			HackColour(r);
-			HackColour(g);
-			HackColour(b);
-			SetAboutStyle(wsci, sty + 50, ColourRGB(r, g, b));
-		}
-		wsci.Send(SCI_SETREADONLY, 1, 0);
-	}
 }
 
 void SciTEBase::ViewWhitespace(bool view) {
@@ -692,17 +327,17 @@ SString SciTEBase::GetLine(int line) {
 	int len;
 	// Get needed buffer size
 	if (line < 0) {
-		len = wEditor.Send(SCI_GETCURLINE, 0, 0);
+		len = wEditor.Call(SCI_GETCURLINE, 0, 0);
 	} else {
-		len = wEditor.Send(SCI_GETLINE, line, 0);
+		len = wEditor.Call(SCI_GETLINE, line, 0);
 	}
 	// Allocate buffer
 	SBuffer text(len);
 	// And get the line
 	if (line < 0) {
-		wEditor.SendPointer(SCI_GETCURLINE, len, text.ptr());
+		wEditor.CallString(SCI_GETCURLINE, len, text.ptr());
 	} else {
-		wEditor.SendPointer(SCI_GETLINE, line, text.ptr());
+		wEditor.CallString(SCI_GETLINE, line, text.ptr());
 	}
 	return SString(text);
 }
@@ -858,17 +493,17 @@ bool SciTEBase::FindMatchingBracePosition(bool editor, int &braceAtCaret, int &b
 	bool isInside = false;
 	GUI::ScintillaWindow &win = editor ? wEditor : wOutput;
 
-	int mainSel = win.Send(SCI_GETMAINSELECTION, 0, 0);
+	int mainSel = win.Call(SCI_GETMAINSELECTION, 0, 0);
 	if (win.Send(SCI_GETSELECTIONNCARETVIRTUALSPACE, mainSel, 0) > 0)
 		return false;
 
 	int bracesStyleCheck = editor ? bracesStyle : 0;
-	int caretPos = win.Send(SCI_GETCURRENTPOS, 0, 0);
+	int caretPos = win.Call(SCI_GETCURRENTPOS, 0, 0);
 	braceAtCaret = -1;
 	braceOpposite = -1;
 	char charBefore = '\0';
 	char styleBefore = '\0';
-	int lengthDoc = win.Send(SCI_GETLENGTH, 0, 0);
+	int lengthDoc = win.Call(SCI_GETLENGTH, 0, 0);
 	TextReader acc(win);
 	if ((lengthDoc > 0) && (caretPos > 0)) {
 		// Check to ensure not matching brace that is part of a multibyte character
@@ -908,11 +543,11 @@ bool SciTEBase::FindMatchingBracePosition(bool editor, int &braceAtCaret, int &b
 	}
 	if (braceAtCaret >= 0) {
 		if (colonMode) {
-			int lineStart = win.Send(SCI_LINEFROMPOSITION, braceAtCaret);
-			int lineMaxSubord = win.Send(SCI_GETLASTCHILD, lineStart, -1);
-			braceOpposite = win.Send(SCI_GETLINEENDPOSITION, lineMaxSubord);
+			int lineStart = win.Call(SCI_LINEFROMPOSITION, braceAtCaret);
+			int lineMaxSubord = win.Call(SCI_GETLASTCHILD, lineStart, -1);
+			braceOpposite = win.Call(SCI_GETLINEENDPOSITION, lineMaxSubord);
 		} else {
-			braceOpposite = win.Send(SCI_BRACEMATCH, braceAtCaret, 0);
+			braceOpposite = win.Call(SCI_BRACEMATCH, braceAtCaret, 0);
 		}
 		if (braceOpposite > braceAtCaret) {
 			isInside = isAfter;
@@ -939,15 +574,15 @@ void SciTEBase::BraceMatch(bool editor) {
 			chBrace = static_cast<char>(win.Send(
 			            SCI_GETCHARAT, braceAtCaret, 0));
 		win.Send(SCI_BRACEHIGHLIGHT, braceAtCaret, braceOpposite);
-		int columnAtCaret = win.Send(SCI_GETCOLUMN, braceAtCaret, 0);
-		int columnOpposite = win.Send(SCI_GETCOLUMN, braceOpposite, 0);
+		int columnAtCaret = win.Call(SCI_GETCOLUMN, braceAtCaret, 0);
+		int columnOpposite = win.Call(SCI_GETCOLUMN, braceOpposite, 0);
 		if (chBrace == ':') {
-			int lineStart = win.Send(SCI_LINEFROMPOSITION, braceAtCaret);
-			int indentPos = win.Send(SCI_GETLINEINDENTPOSITION, lineStart, 0);
-			int indentPosNext = win.Send(SCI_GETLINEINDENTPOSITION, lineStart + 1, 0);
-			columnAtCaret = win.Send(SCI_GETCOLUMN, indentPos, 0);
-			int columnAtCaretNext = win.Send(SCI_GETCOLUMN, indentPosNext, 0);
-			int indentSize = win.Send(SCI_GETINDENT);
+			int lineStart = win.Call(SCI_LINEFROMPOSITION, braceAtCaret);
+			int indentPos = win.Call(SCI_GETLINEINDENTPOSITION, lineStart, 0);
+			int indentPosNext = win.Call(SCI_GETLINEINDENTPOSITION, lineStart + 1, 0);
+			columnAtCaret = win.Call(SCI_GETCOLUMN, indentPos, 0);
+			int columnAtCaretNext = win.Call(SCI_GETCOLUMN, indentPosNext, 0);
+			int indentSize = win.Call(SCI_GETINDENT);
 			if (columnAtCaretNext - indentSize > 1)
 				columnAtCaret = columnAtCaretNext - indentSize;
 			if (columnOpposite == 0)	// If the final line of the structure is empty
@@ -1005,6 +640,10 @@ Sci_CharacterRange SciTEBase::GetSelection() {
 	crange.cpMin = wEditor.Call(SCI_GETSELECTIONSTART);
 	crange.cpMax = wEditor.Call(SCI_GETSELECTIONEND);
 	return crange;
+}
+
+SelectedRange SciTEBase::GetSelectedRange() {
+	return SelectedRange(wEditor.Call(SCI_GETCURRENTPOS), wEditor.Call(SCI_GETANCHOR));
 }
 
 void SciTEBase::SetSelection(int anchor, int currentPos) {
@@ -1073,8 +712,9 @@ bool SciTEBase::iswordcharforsel(char ch) {
 // Doesn't accept all valid characters, as they are rarely used in source filenames...
 // Accept path separators '/' and '\', extension separator '.', and ':', MS drive unit
 // separator, and also used for separating the line number for grep. Same for '(' and ')' for cl.
+// Accept '?' and '%' which are used in URL.
 bool SciTEBase::isfilenamecharforsel(char ch) {
-	return !strchr("\t\n\r \"$%'*,;<>?[]^`{|}", ch);
+	return !strchr("\t\n\r \"$'*,;<>[]^`{|}", ch);
 }
 
 bool SciTEBase::islexerwordcharforsel(char ch) {
@@ -1083,6 +723,57 @@ bool SciTEBase::islexerwordcharforsel(char ch) {
 		return wordCharacters.contains(ch);
 	else
 		return iswordcharforsel(ch);
+}
+
+void SciTEBase::HighlightCurrentWord(bool highlight) {
+	if (!currentWordHighlight.isEnabled)
+		return;
+	GUI::ScintillaWindow &wCurrent = wOutput.HasFocus() ? wOutput : wEditor;
+	// Remove old indicators if any exist.
+	wCurrent.Call(SCI_SETINDICATORCURRENT, indicatorHightlightCurrentWord);
+	int lenDoc = wCurrent.Call(SCI_GETLENGTH);
+	wCurrent.Call(SCI_INDICATORCLEARRANGE, 0, lenDoc);
+	if (!highlight)
+		return;
+	// Get start & end selection.
+	int selStart = wCurrent.Call(SCI_GETSELECTIONSTART);
+	int selEnd = wCurrent.Call(SCI_GETSELECTIONEND);
+	bool noUserSelection = selStart == selEnd;
+	SString wordToFind = RangeExtendAndGrab(wCurrent, selStart, selEnd,
+	        &SciTEBase::islexerwordcharforsel);
+	if (wordToFind.length() == 0 || wordToFind.contains('\n') || wordToFind.contains('\r'))
+		return; // No highlight when no selection or multi-lines selection.
+	if (noUserSelection && currentWordHighlight.statesOfDelay == currentWordHighlight.noDelay) {
+		// Manage delay before highlight when no user selection but there is word at the caret.
+		currentWordHighlight.statesOfDelay = currentWordHighlight.delay;
+		// Reset timer
+		currentWordHighlight.elapsedTimes.Duration(true);
+		return;
+	}
+	// Get style of the current word to highlight only word with same style.
+	int selectedStyle = wCurrent.Call(SCI_GETSTYLEAT, selStart);
+
+	// Manage word with DBCS.
+	wordToFind = EncodeString(wordToFind);
+
+	// Case sensitive & whole word only.
+	wCurrent.Call(SCI_SETSEARCHFLAGS, SCFIND_MATCHCASE | SCFIND_WHOLEWORD);
+	wCurrent.Call(SCI_SETTARGETSTART, 0);
+	wCurrent.Call(SCI_SETTARGETEND, lenDoc);
+	// Find the first occurrence of word.
+	int indexOf = wCurrent.CallString(SCI_SEARCHINTARGET,
+	        wordToFind.length(), wordToFind.c_str());
+	while (indexOf != -1 && indexOf < lenDoc) {
+		if (!currentWordHighlight.isOnlyWithSameStyle || selectedStyle ==
+		        wCurrent.Call(SCI_GETSTYLEAT, indexOf)) {
+			wCurrent.Call(SCI_INDICATORFILLRANGE, indexOf, wordToFind.length());
+		}
+		// Try to find next occurrence of word.
+		wCurrent.Call(SCI_SETTARGETSTART, indexOf + wordToFind.length() + 1);
+		wCurrent.Call(SCI_SETTARGETEND, lenDoc);
+		indexOf = wCurrent.CallString(SCI_SEARCHINTARGET, wordToFind.length(),
+		        wordToFind.c_str());
+	}
 }
 
 SString SciTEBase::GetRange(GUI::ScintillaWindow &win, int selStart, int selEnd) {
@@ -1241,7 +932,7 @@ static int UnSlashAsNeeded(SString &s, bool escapes, bool regularExpression) {
 		delete []sUnslashed;
 		return static_cast<int>(len);
 	} else {
-		return s.length();
+		return static_cast<int>(s.length());
 	}
 }
 
@@ -1251,6 +942,7 @@ void SciTEBase::RemoveFindMarks() {
 		wEditor.Call(SCI_INDICATORCLEARRANGE, 0, LengthDocument());
 		CurrentBuffer()->findMarks = Buffer::fmNone;
 	}
+	wEditor.Call(SCI_ANNOTATIONCLEARALL);
 }
 
 int SciTEBase::MarkAll() {
@@ -1319,7 +1011,8 @@ void SciTEBase::SetReplace(const char *sReplace) {
 
 void SciTEBase::MoveBack(int distance) {
 	Sci_CharacterRange cr = GetSelection();
-	SetSelection(cr.cpMin - distance, cr.cpMin - distance);
+	int caret = static_cast<int>(cr.cpMin) - distance;
+	SetSelection(caret, caret);
 }
 
 void SciTEBase::ScrollEditorIfNeeded() {
@@ -1345,10 +1038,10 @@ int SciTEBase::FindNext(bool reverseDirection, bool showWarnings) {
 		return -1;
 
 	Sci_CharacterRange cr = GetSelection();
-	int startPosition = cr.cpMax;
+	int startPosition = static_cast<int>(cr.cpMax);
 	int endPosition = LengthDocument();
 	if (reverseDirection) {
-		startPosition = cr.cpMin;
+		startPosition = static_cast<int>(cr.cpMin);
 		endPosition = 0;
 	}
 
@@ -1399,7 +1092,7 @@ void SciTEBase::ReplaceOnce() {
 
 	if (!havefound) {
 		Sci_CharacterRange crange = GetSelection();
-		SetSelection(crange.cpMin, crange.cpMin);
+		SetSelection(static_cast<int>(crange.cpMin), static_cast<int>(crange.cpMin));
 		FindNext(false);
 	}
 
@@ -1414,7 +1107,7 @@ void SciTEBase::ReplaceOnce() {
 			lenReplaced = wEditor.CallString(SCI_REPLACETARGETRE, replaceLen, replaceTarget.c_str());
 		else	// Allow \0 in replacement
 			wEditor.CallString(SCI_REPLACETARGET, replaceLen, replaceTarget.c_str());
-		SetSelection(cr.cpMin + lenReplaced, cr.cpMin);
+		SetSelection(static_cast<int>(cr.cpMin) + lenReplaced, static_cast<int>(cr.cpMin));
 		havefound = false;
 	}
 
@@ -1429,8 +1122,8 @@ int SciTEBase::DoReplaceAll(bool inSelection) {
 	}
 
 	Sci_CharacterRange cr = GetSelection();
-	int startPosition = cr.cpMin;
-	int endPosition = cr.cpMax;
+	int startPosition = static_cast<int>(cr.cpMin);
+	int endPosition = static_cast<int>(cr.cpMax);
 	int countSelections = wEditor.Call(SCI_GETSELECTIONS);
 	if (inSelection) {
 		int selType = wEditor.Call(SCI_GETSELECTIONMODE);
@@ -1604,8 +1297,8 @@ void SciTEBase::OutputAppendStringSynchronised(const char *s, int len) {
 		len = static_cast<int>(strlen(s));
 	wOutput.Send(SCI_APPENDTEXT, len, reinterpret_cast<sptr_t>(s));
 	if (scrollOutput) {
-		int line = wOutput.Send(SCI_GETLINECOUNT);
-		int lineStart = wOutput.Send(SCI_POSITIONFROMLINE, line);
+		sptr_t line = wOutput.Send(SCI_GETLINECOUNT);
+		sptr_t lineStart = wOutput.Send(SCI_POSITIONFROMLINE, line);
 		wOutput.Send(SCI_GOTOPOS, lineStart);
 	}
 }
@@ -1753,7 +1446,7 @@ void SciTEBase::Redraw() {
 	wOutput.InvalidateAll();
 }
 
-char *SciTEBase::GetNearestWords(const char *wordStart, int searchLen,
+char *SciTEBase::GetNearestWords(const char *wordStart, size_t searchLen,
 		const char *separators, bool ignoreCase /*=false*/, bool exactLen /*=false*/) {
 	char *words = 0;
 	while (!words && *separators) {
@@ -1901,7 +1594,7 @@ void SciTEBase::EliminateDuplicateWords(char *words) {
 	char *firstSpace = strchr(firstWord, ' ');
 	char *secondWord;
 	char *secondSpace;
-	int firstLen, secondLen;
+	size_t firstLen, secondLen;
 
 	while (firstSpace) {
 		firstLen = firstSpace - firstWord;
@@ -1968,13 +1661,13 @@ bool SciTEBase::StartAutoCompleteWord(bool onlyOneWord) {
 	SString root = line.substr(startword, current - startword);
 	int doclen = LengthDocument();
 	Sci_TextToFind ft = {{0, 0}, 0, {0, 0}};
-	ft.lpstrText = const_cast<char*>(root.c_str());
+	ft.lpstrText = const_cast<char *>(root.c_str());
 	ft.chrg.cpMin = 0;
 	ft.chrg.cpMax = doclen;
 	ft.chrgText.cpMin = 0;
 	ft.chrgText.cpMax = 0;
 	const int flags = SCFIND_WORDSTART | (autoCompleteIgnoreCase ? 0 : SCFIND_MATCHCASE);
-	int posCurrentWord = wEditor.Call(SCI_GETCURRENTPOS) - root.length();
+	int posCurrentWord = wEditor.Call(SCI_GETCURRENTPOS) - static_cast<int>(root.length());
 	unsigned int minWordLength = 0;
 	unsigned int nwords = 0;
 
@@ -1987,11 +1680,11 @@ bool SciTEBase::StartAutoCompleteWord(bool onlyOneWord) {
 	int posFind = wEditor.CallString(SCI_FINDTEXT, flags, reinterpret_cast<char *>(&ft));
 	TextReader acc(wEditor);
 	while (posFind >= 0 && posFind < doclen) {	// search all the document
-		int wordEnd = posFind + root.length();
+		int wordEnd = posFind + static_cast<int>(root.length());
 		if (posFind != posCurrentWord) {
 			while (wordCharacters.contains(acc.SafeGetCharAt(wordEnd)))
 				wordEnd++;
-			size_t wordLength = wordEnd - posFind;
+			unsigned int wordLength = wordEnd - posFind;
 			if (wordLength > root.length()) {
 				SString word = GetRange(wEditor, posFind, wordEnd);
 				word.insert(0, "\n");
@@ -2149,8 +1842,6 @@ bool SciTEBase::StartInsertAbbreviation() {
 	// set the caret to the desired position
 	if (double_pipe) {
 		sel_length = 0;
-	} else if (!at_start && sel_length == 0) {
-		sel_start += static_cast<int>(expbuflen);
 	}
 	wEditor.Call(SCI_SETSEL, sel_start, sel_start + sel_length);
 
@@ -2311,10 +2002,10 @@ bool SciTEBase::StartBlockComment() {
 		if (linebuf.length() < 1)
 			continue;
 		if (linebuf.startswith(comment.c_str())) {
-			int commentLength = comment.length();
+			int commentLength = static_cast<int>(comment.length());
 			if (linebuf.startswith(long_comment.c_str())) {
 				// Removing comment with space after it.
-				commentLength = long_comment.length();
+				commentLength = static_cast<int>(long_comment.length());
 			}
 			wEditor.Call(SCI_SETSEL, lineIndent, lineIndent + commentLength);
 			wEditor.CallString(SCI_REPLACESEL, 0, "");
@@ -2324,8 +2015,8 @@ bool SciTEBase::StartBlockComment() {
 			continue;
 		}
 		if (i == selStartLine) // is this the first selected line?
-			selectionStart += long_comment.length();
-		selectionEnd += long_comment.length(); // every iteration
+			selectionStart += static_cast<int>(long_comment.length());
+		selectionEnd += static_cast<int>(long_comment.length()); // every iteration
 		wEditor.CallString(SCI_INSERTTEXT, lineIndent, long_comment.c_str());
 	}
 	// after uncommenting selection may promote itself to the lines
@@ -2404,13 +2095,13 @@ bool SciTEBase::StartBoxComment() {
 	// Pad comment strings with appropriate whitespace, then figure out their lengths (end_comment is a bit special-- see below)
 	start_comment += white_space;
 	middle_comment += white_space;
-	size_t start_comment_length = start_comment.length();
-	size_t middle_comment_length = middle_comment.length();
-	size_t end_comment_length = end_comment.length();
-	size_t whitespace_length = white_space.length();
+	int start_comment_length = static_cast<int>(start_comment.length());
+	int middle_comment_length = static_cast<int>(middle_comment.length());
+	int end_comment_length = static_cast<int>(end_comment.length());
+	int whitespace_length = static_cast<int>(white_space.length());
 
 	// Calculate the length of the longest comment string to be inserted, and allocate a null-terminated char buffer of equal size
-	size_t maxCommentLength = start_comment_length;
+	int maxCommentLength = start_comment_length;
 	if (middle_comment_length > maxCommentLength)
 		maxCommentLength = middle_comment_length;
 	if (end_comment_length + whitespace_length > maxCommentLength)
@@ -2626,7 +2317,7 @@ void SciTEBase::SetTextProperties(
 	} else if (selLastLine == selFirstLine) {
 		sprintf(temp, "%d", 1);
 	} else if ((wEditor.Call(SCI_GETCOLUMN, caretPos) == 0 && (selAnchor <= caretPos)) ||
-	        ((wEditor.Call( SCI_GETCOLUMN, selAnchor) == 0) && (selAnchor > caretPos ))) {
+	        ((wEditor.Call(SCI_GETCOLUMN, selAnchor) == 0) && (selAnchor > caretPos ))) {
 		sprintf(temp, "%d", selLastLine - selFirstLine);
 	} else {
 		sprintf(temp, "%d", selLastLine - selFirstLine + 1);
@@ -2690,7 +2381,7 @@ void SciTEBase::SetLineIndentation(int line, int indent) {
 				crange.cpMax = posAfter;
 		}
 	}
-	SetSelection(crange.cpMin, crange.cpMax);
+	SetSelection(static_cast<int>(crange.cpMin), static_cast<int>(crange.cpMax));
 }
 
 int SciTEBase::GetLineIndentation(int line) {
@@ -2740,7 +2431,7 @@ void SciTEBase::ConvertIndentation(int tabSize, int useTabs) {
 
 bool SciTEBase::RangeIsAllWhitespace(int start, int end) {
 	TextReader acc(wEditor);
-	for (int i = start;i < end;i++) {
+	for (int i = start; i < end; i++) {
 		if ((acc[i] != ' ') && (acc[i] != '\t'))
 			return false;
 	}
@@ -2895,11 +2586,45 @@ void SciTEBase::MaintainIndentation(char ch) {
 
 void SciTEBase::AutomaticIndentation(char ch) {
 	Sci_CharacterRange crange = GetSelection();
-	int selStart = crange.cpMin;
+	int selStart = static_cast<int>(crange.cpMin);
 	int curLine = GetCurrentLineNumber();
 	int thisLineStart = wEditor.Call(SCI_POSITIONFROMLINE, curLine);
 	int indentSize = wEditor.Call(SCI_GETINDENT);
 	int indentBlock = IndentOfBlock(curLine - 1);
+
+	if ((wEditor.Call(SCI_GETLEXER) == SCLEX_PYTHON) &&
+			(props.GetInt("indent.python.colon") == 1)) {
+		int eolMode = wEditor.Call(SCI_GETEOLMODE);
+		int eolChar = (eolMode == SC_EOL_CR ? '\r' : '\n');
+		int eolChars = (eolMode == SC_EOL_CRLF ? 2 : 1);
+		int prevLineStart = wEditor.Call(SCI_POSITIONFROMLINE, curLine - 1);
+		int prevIndentPos = GetLineIndentPosition(curLine - 1);
+		int indentExisting = GetLineIndentation(curLine);
+
+		if (ch == eolChar) {
+			// Find last noncomment, nonwhitespace character on previous line
+			int character = 0;
+			int style = 0;
+			for (int p = selStart - eolChars - 1; p > prevLineStart; p--) {
+				style = wEditor.Call(SCI_GETSTYLEAT, p);
+				if (style != SCE_P_DEFAULT && style != SCE_P_COMMENTLINE &&
+						style != SCE_P_COMMENTBLOCK) {
+					character = wEditor.Call(SCI_GETCHARAT, p);
+					break;
+				}
+			}
+			indentBlock = GetLineIndentation(curLine - 1);
+			if (style == SCE_P_OPERATOR && character == ':') {
+				SetLineIndentation(curLine, indentBlock + indentSize);
+			} else if (selStart == prevIndentPos + eolChars) {
+				// Preserve the indentation of preexisting text beyond the caret
+				SetLineIndentation(curLine, indentBlock + indentExisting);
+			} else {
+				SetLineIndentation(curLine, indentBlock);
+			}
+		}
+		return;
+	}
 
 	if (blockEnd.IsSingleChar() && ch == blockEnd.words[0]) {	// Dedent maybe
 		if (!indentClosing) {
@@ -2941,8 +2666,8 @@ void SciTEBase::CharAdded(char ch) {
 	if (recording)
 		return;
 	Sci_CharacterRange crange = GetSelection();
-	int selStart = crange.cpMin;
-	int selEnd = crange.cpMax;
+	int selStart = static_cast<int>(crange.cpMin);
+	int selEnd = static_cast<int>(crange.cpMax);
 	if ((selEnd == selStart) && (selStart > 0)) {
 		if (wEditor.Call(SCI_CALLTIPACTIVE)) {
 			if (calltipParametersEnd.contains(ch)) {
@@ -3095,8 +2820,8 @@ SString SciTEBase::FindOpenXmlTag(const char sel[], int nSize) {
 		// Smallest tag is "<p>" which is 3 characters
 		return strRet;
 	}
-	const char* pBegin = &sel[0];
-	const char* pCur = &sel[nSize - 1];
+	const char *pBegin = &sel[0];
+	const char *pCur = &sel[nSize - 1];
 
 	pCur--; // Skip past the >
 	while (pCur > pBegin) {
@@ -3579,6 +3304,15 @@ void SciTEBase::MenuCommand(int cmdID, int source) {
 		break;
 
 	case IDM_SPLITVERTICAL:
+		{
+			GUI::Rectangle rcClient = GetClientRectangle();
+			heightOutput = splitVertical ?
+				int((double)heightOutput * rcClient.Height() / rcClient.Width() + 0.5) : 
+				int((double)heightOutput * rcClient.Width() / rcClient.Height() + 0.5);
+			previousHeightOutput = splitVertical ?
+				int((double)previousHeightOutput * rcClient.Height() / rcClient.Width() + 0.5) : 
+				int((double)previousHeightOutput * rcClient.Width() / rcClient.Height() + 0.5);
+		}
 		splitVertical = !splitVertical;
 		heightOutput = NormaliseSplit(heightOutput);
 		SizeSubWindows();
@@ -3731,7 +3465,7 @@ void SciTEBase::MenuCommand(int cmdID, int source) {
 	case IDM_GO: {
 			if (SaveIfUnsureForBuilt() != IDCANCEL) {
 				SelectionIntoProperties();
-				long flags = 0;
+				int flags = 0;
 
 				if (!jobQueue.isBuilt) {
 					SString buildcmd = props.GetNewExpand("command.go.needs.", FileNameExt().AsUTF8().c_str());
@@ -3890,24 +3624,28 @@ void SciTEBase::FoldChanged(int line, int levelNow, int levelPrev) {
 		if (!(levelPrev & SC_FOLDLEVELHEADERFLAG)) {
 			// Adding a fold point.
 			wEditor.Call(SCI_SETFOLDEXPANDED, line, 1);
-			Expand(line, true, false, 0, levelPrev);
+			if (!wEditor.Call(SCI_GETALLLINESVISIBLE))
+				Expand(line, true, false, 0, levelPrev);
 		}
 	} else if (levelPrev & SC_FOLDLEVELHEADERFLAG) {
 		if (!wEditor.Call(SCI_GETFOLDEXPANDED, line)) {
 			// Removing the fold from one that has been contracted so should expand
 			// otherwise lines are left invisible with no way to make them visible
 			wEditor.Call(SCI_SETFOLDEXPANDED, line, 1);
-			Expand(line, true, false, 0, levelPrev);
+			if (!wEditor.Call(SCI_GETALLLINESVISIBLE))
+				Expand(line, true, false, 0, levelPrev);
 		}
 	}
 	if (!(levelNow & SC_FOLDLEVELWHITEFLAG) &&
 	        ((levelPrev & SC_FOLDLEVELNUMBERMASK) > (levelNow & SC_FOLDLEVELNUMBERMASK))) {
-		// See if should still be hidden
-		int parentLine = wEditor.Call(SCI_GETFOLDPARENT, line);
-		if (parentLine < 0) {
-			wEditor.Call(SCI_SHOWLINES, line, line);
-		} else if (wEditor.Call(SCI_GETFOLDEXPANDED, parentLine) && wEditor.Call(SCI_GETLINEVISIBLE, parentLine)) {
-			wEditor.Call(SCI_SHOWLINES, line, line);
+		if (!wEditor.Call(SCI_GETALLLINESVISIBLE)) {
+			// See if should still be hidden
+			int parentLine = wEditor.Call(SCI_GETFOLDPARENT, line);
+			if (parentLine < 0) {
+				wEditor.Call(SCI_SHOWLINES, line, line);
+			} else if (wEditor.Call(SCI_GETFOLDEXPANDED, parentLine) && wEditor.Call(SCI_GETLINEVISIBLE, parentLine)) {
+				wEditor.Call(SCI_SHOWLINES, line, line);
+			}
 		}
 	}
 }
@@ -4057,6 +3795,19 @@ void SciTEBase::NewLineInOutput() {
 void SciTEBase::Notify(SCNotification *notification) {
 	bool handled = false;
 	switch (notification->nmhdr.code) {
+	case SCN_PAINTED:
+		// Manage delay before highlight when no user selection but there is word at the caret.
+		// So the Delay is based on the blinking of caret, scroll...
+		// If currentWordHighlight.statesOfDelay == currentWordHighlight.delay,
+		// then there is word at the caret without selection, and need some delay.
+		if (currentWordHighlight.statesOfDelay == currentWordHighlight.delay) {
+			if (currentWordHighlight.elapsedTimes.Duration() >= 0.5) {
+				currentWordHighlight.statesOfDelay = currentWordHighlight.delayJustEnded;
+				HighlightCurrentWord(true);
+				(wOutput.HasFocus() ? wOutput : wEditor).InvalidateAll();
+			}
+		}
+		break;
 	case SCEN_SETFOCUS:
 	case SCEN_KILLFOCUS:
 		CheckMenus();
@@ -4104,7 +3855,7 @@ void SciTEBase::Notify(SCNotification *notification) {
 		}
 		CheckMenus();
 		SetWindowName();
-		BuffersMenu();
+		SetBuffersMenu();
 		break;
 
 	case SCN_SAVEPOINTLEFT:
@@ -4118,7 +3869,7 @@ void SciTEBase::Notify(SCNotification *notification) {
 		}
 		CheckMenus();
 		SetWindowName();
-		BuffersMenu();
+		SetBuffersMenu();
 		break;
 
 	case SCN_DOUBLECLICK:
@@ -4142,6 +3893,14 @@ void SciTEBase::Notify(SCNotification *notification) {
 		if (CurrentBuffer()->findMarks == Buffer::fmModified) {
 			RemoveFindMarks();
 		}
+		if (notification->updated & (SC_UPDATE_SELECTION | SC_UPDATE_CONTENT)) {
+			if (notification->updated & SC_UPDATE_SELECTION)
+				currentWordHighlight.statesOfDelay = currentWordHighlight.noDelay; // Selection has just been updated, so delay is disabled.
+			if (currentWordHighlight.statesOfDelay != currentWordHighlight.delayJustEnded)
+				HighlightCurrentWord(notification->updated != SC_UPDATE_CONTENT);
+			else
+				currentWordHighlight.statesOfDelay = currentWordHighlight.delayAlreadyElapsed;
+		}
 		break;
 
 	case SCN_MODIFIED:
@@ -4152,8 +3911,8 @@ void SciTEBase::Notify(SCNotification *notification) {
 			EnableAMenuItem(IDM_REDO, CallFocused(SCI_CANREDO));
 		} else if (notification->modificationType & (SC_MOD_INSERTTEXT | SC_MOD_DELETETEXT)) {
 			//this will be called a lot, and usually means "typing".
-			EnableAMenuItem(IDM_UNDO, TRUE);
-			EnableAMenuItem(IDM_REDO, FALSE);
+			EnableAMenuItem(IDM_UNDO, true);
+			EnableAMenuItem(IDM_REDO, false);
 			if (CurrentBuffer()->findMarks == Buffer::fmMarked) {
 				CurrentBuffer()->findMarks = Buffer::fmModified;
 			}
@@ -4188,7 +3947,7 @@ void SciTEBase::Notify(SCNotification *notification) {
 			if (notification->wParam == 2)
 				ContinueMacroList(notification->text);
 			else if (extender && notification->wParam > 2)
-				extender->OnUserListSelection(notification->wParam, notification->text);
+				extender->OnUserListSelection(static_cast<int>(notification->wParam), notification->text);
 		}
 		break;
 
@@ -4282,22 +4041,7 @@ void SciTEBase::CheckMenus() {
 		EnableAMenuItem(IDM_TOOLS + toolItem, !jobQueue.IsExecuting());
 	EnableAMenuItem(IDM_STOPEXECUTE, jobQueue.IsExecuting());
 	if (buffers.size > 0) {
-#if defined(WIN32)
-		// Tab Bar
-#ifndef TCM_DESELECTALL
-#define TCM_DESELECTALL TCM_FIRST+50
-#endif
-		if (wTabBar.GetID()) {
-			::SendMessage(reinterpret_cast<HWND>(wTabBar.GetID()), TCM_DESELECTALL, (WPARAM)0, (LPARAM)0);
-			::SendMessage(reinterpret_cast<HWND>(wTabBar.GetID()), TCM_SETCURSEL, (WPARAM)buffers.Current(), (LPARAM)0);
-		}
-#endif
-#if defined(GTK)
-
-		if (wTabBar.GetID())
-			gtk_notebook_set_page(GTK_NOTEBOOK(wTabBar.GetID()), buffers.Current());
-#endif
-
+		TabSelect(buffers.Current());
 		for (int bufferItem = 0; bufferItem < buffers.length; bufferItem++) {
 			CheckAMenuItem(IDM_BUFFER + bufferItem, bufferItem == buffers.Current());
 		}
@@ -4466,7 +4210,7 @@ void SciTEBase::PerformOne(char *action) {
 		} else if (isprefix(action, "menucommand:")) {
 			MenuCommand(atoi(arg));
 		} else if (isprefix(action, "open:")) {
-			Open(GUI::StringFromUTF8(arg));
+			Open(GUI::StringFromUTF8(arg), ofSynchronous);
 		} else if (isprefix(action, "output:") && wOutput.Created()) {
 			wOutput.Call(SCI_REPLACESEL, 0, reinterpret_cast<sptr_t>(arg));
 		} else if (isprefix(action, "property:")) {
@@ -4582,7 +4326,7 @@ bool SciTEBase::RecordMacroCommand(SCNotification *notification) {
 		char *szMessage;
 		char *t;
 		bool handled;
-		t = (char*)(notification->lParam);
+		t = (char *)(notification->lParam);
 		SString sWParam(static_cast<size_t>(notification->wParam));
 		if (t != NULL) {
 			//format : "<message>;<wParam>;1;<text>"
@@ -4654,9 +4398,9 @@ SciTE received a macro command from director : execute it.
 If command needs answer (SCI_GETTEXTLENGTH ...) : give answer to director
 */
 
-static uptr_t ReadNum(const char *&t) {
+static unsigned int ReadNum(const char *&t) {
 	const char *argend = strchr(t, ';');	// find ';'
-	uptr_t v = 0;
+	unsigned int v = 0;
 	if (*t)
 		v = atoi(t);					// read value
 	t = argend + 1;					// update pointer
@@ -4680,15 +4424,16 @@ void SciTEBase::ExecuteMacroCommand(const char *command) {
 
 	//extract message,wParam ,lParam
 
-	uptr_t message = ReadNum(nextarg);
+	unsigned int message = ReadNum(nextarg);
 	strncpy(params, nextarg, 3);
+	params[3] = '\0';
 	nextarg += 4;
 	if (*(params + 1) == 'R') {
 		// in one function wParam is a string  : void SetProperty(string key,string name)
 		const char *s1 = nextarg;
 		while (*nextarg != ';')
 			nextarg++;
-		int lstring1 = nextarg - s1;
+		size_t lstring1 = nextarg - s1;
 		string1 = new char[lstring1 + 1];
 		if (lstring1 > 0)
 			strncpy(string1, s1, lstring1);
@@ -4831,7 +4576,7 @@ bool SciTEBase::ProcessCommandLine(GUI::gui_string &args, int phase) {
 					}
 				} else {
 					if (evaluate) {
-						props.ReadLine(GUI::UTF8FromString(arg).c_str(), true, FilePath::GetWorkingDirectory());
+						props.ReadLine(GUI::UTF8FromString(arg).c_str(), true, FilePath::GetWorkingDirectory(), filter);
 					}
 				}
 			}
@@ -4846,7 +4591,7 @@ bool SciTEBase::ProcessCommandLine(GUI::gui_string &args, int phase) {
 				RestoreRecentMenu();
 
 			if (!PreOpenCheck(arg))
-				Open(arg, ofQuiet);
+				Open(arg, static_cast<OpenFlags>(ofQuiet|ofSynchronous));
 		}
 	}
 	if (phase == 1) {

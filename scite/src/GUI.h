@@ -45,9 +45,9 @@ public:
 	}
 };
 
-#if defined(GTK)
+#if defined(GTK) || defined(__APPLE__)
 
-// On GTK+ use UTF-8 char strings
+// On GTK+ and OS X use UTF-8 char strings
 
 typedef char gui_char;
 typedef std::string gui_string;
@@ -64,8 +64,6 @@ typedef std::wstring gui_string;
 #define GUI_TEXT(q) L##q
 
 #endif
-
-//typedef std::basic_string<gui_char> gui_string;
 
 gui_string StringFromUTF8(const char *s);
 std::string UTF8FromString(const gui_string &s);
@@ -124,8 +122,8 @@ public:
 };
 
 struct ScintillaFailure {
-	int status;
-	ScintillaFailure(int status_) : status(status_) {
+	sptr_t status;
+	ScintillaFailure(sptr_t status_) : status(status_) {
 	}
 };
 
@@ -151,14 +149,31 @@ public:
 	bool CanCall() const {
 		return wid && fn && ptr;
 	}
-	sptr_t Call(unsigned int msg, uptr_t wParam=0, sptr_t lParam=0) {
+	int Call(unsigned int msg, uptr_t wParam=0, sptr_t lParam=0) {
+		switch (msg) {
+		case SCI_CREATEDOCUMENT:
+		case SCI_CREATELOADER:
+		case SCI_PRIVATELEXERCALL:
+		case SCI_GETDIRECTFUNCTION:
+		case SCI_GETDIRECTPOINTER:
+		case SCI_GETDOCPOINTER:
+		case SCI_GETCHARACTERPOINTER:
+			throw ScintillaFailure(SC_STATUS_FAILURE);
+		}
+		sptr_t retVal = fn(ptr, msg, wParam, lParam);
+		sptr_t status = fn(ptr, SCI_GETSTATUS, 0, 0);
+		if (status > 0)
+			throw ScintillaFailure(status);
+		return static_cast<int>(retVal);
+	}
+	sptr_t CallReturnPointer(unsigned int msg, uptr_t wParam=0, sptr_t lParam=0) {
 		sptr_t retVal = fn(ptr, msg, wParam, lParam);
 		sptr_t status = fn(ptr, SCI_GETSTATUS, 0, 0);
 		if (status > 0)
 			throw ScintillaFailure(status);
 		return retVal;
 	}
-	sptr_t CallString(unsigned int msg, uptr_t wParam, const char *s) {
+	int CallString(unsigned int msg, uptr_t wParam, const char *s) {
 		return Call(msg, wParam, reinterpret_cast<sptr_t>(s));
 	}
 	sptr_t Send(unsigned int msg, uptr_t wParam=0, sptr_t lParam=0);
@@ -168,5 +183,17 @@ public:
 bool IsDBCSLeadByte(int codePage, char ch);
 
 }
+
+#if defined(SCI_NAMESPACE)
+
+// Scintilla namespace may or may not be turned on.
+// If it is turned on, then make the structures usable without the Scintilla:: prefix
+
+using Scintilla::Sci_CharacterRange;
+using Scintilla::Sci_TextRange;
+using Scintilla::Sci_TextToFind;
+using Scintilla::SCNotification;
+
+#endif
 
 #endif

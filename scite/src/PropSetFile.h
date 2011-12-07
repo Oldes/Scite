@@ -10,6 +10,14 @@
 
 typedef std::map<std::string, std::string> mapss;
 
+class ImportFilter {
+public:
+	std::set<std::string> excludes;
+	std::set<std::string> includes;
+	void SetFilter(std::string sExcludes, std::string sIncludes);
+	bool IsValid(std::string name) const;
+};
+
 class PropSetFile {
 	bool lowerKeys;
 	SString GetWildUsingStart(const PropSetFile &psStart, const char *keybase, const char *filename);
@@ -19,22 +27,26 @@ class PropSetFile {
 public:
 	PropSetFile *superPS;
 	PropSetFile(bool lowerKeys_=false);
+	PropSetFile(const PropSetFile &copy);
 	virtual ~PropSetFile();
-	void Set(const char *key, const char *val, int lenKey=-1, int lenVal=-1);
+	PropSetFile &operator=(const PropSetFile &assign);
+	void Set(const char *key, const char *val, ptrdiff_t lenKey=-1, ptrdiff_t lenVal=-1);
 	void Set(const char *keyVal);
 	void Unset(const char *key, int lenKey=-1);
 	void SetMultiple(const char *s);
 	bool Exists(const char *key) const;
 	SString Get(const char *key) const;
+	SString Evaluate(const char *key) const;
 	SString GetExpanded(const char *key) const;
 	SString Expand(const char *withVars, int maxExpands=100) const;
 	int GetInt(const char *key, int defaultValue=0) const;
 	void Clear();
 	char *ToString() const;	// Caller must delete[] the return value
 
-	bool ReadLine(const char *data, bool ifIsTrue, FilePath directoryForImports, FilePath imports[] = 0, int sizeImports = 0);
-	void ReadFromMemory(const char *data, int len, FilePath directoryForImports, FilePath imports[] = 0, int sizeImports = 0);
-	bool Read(FilePath filename, FilePath directoryForImports, FilePath imports[] = 0, int sizeImports = 0);
+	bool ReadLine(const char *data, bool ifIsTrue, FilePath directoryForImports, const ImportFilter &filter, std::vector<FilePath> *imports=0);
+	void ReadFromMemory(const char *data, size_t len, FilePath directoryForImports, const ImportFilter &filter, std::vector<FilePath> *imports=0);
+	void Import(FilePath filename, FilePath directoryForImports, const ImportFilter &filter, std::vector<FilePath> *imports);
+	bool Read(FilePath filename, FilePath directoryForImports, const ImportFilter &filter, std::vector<FilePath> *imports=0);
 	void SetInteger(const char *key, int i);
 	SString GetWild(const char *keybase, const char *filename);
 	SString GetNewExpand(const char *keybase, const char *filename="");
@@ -43,9 +55,7 @@ public:
 	static void SetCaseSensitiveFilenames(bool caseSensitiveFilenames_) {
 		caseSensitiveFilenames = caseSensitiveFilenames_;
 	}
-
-private:
-	// copy-value semantics not implemented
-	PropSetFile(const PropSetFile &copy);
-	void operator=(const PropSetFile &assign);
 };
+
+#define PROPERTIES_EXTENSION	".properties"
+bool IsPropertiesFile(const FilePath &filename);

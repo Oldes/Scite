@@ -13,13 +13,10 @@
 #include <stdarg.h>
 #include <sys/stat.h>
 
-#ifdef _MSC_VER
-#pragma warning(disable: 4786)
-#endif
-
 #include <string>
 #include <vector>
 #include <deque>
+#include <set>
 #include <map>
 #include <algorithm>
 
@@ -62,6 +59,7 @@ typedef HANDLE HTHEME;
 #endif
 
 #include "Scintilla.h"
+#include "ILexer.h"
 
 #include "GUI.h"
 
@@ -81,10 +79,32 @@ typedef HANDLE HTHEME;
 
 const int SCITE_TRAY = WM_APP + 0;
 const int SCITE_DROP = WM_APP + 1;
+const int SCITE_WORKER = WM_APP + 2;
 
-class Dialog;
+enum { 
+	WORK_EXECUTE = WORK_PLATFORM + 1
+};
 
 class SciTEWin;
+
+class CommandWorker : public Worker {
+public:
+	SciTEWin *pSciTE;
+	int icmd;
+	int originalEnd;
+	int exitStatus;
+	GUI::ElapsedTime commandTime;
+	std::string output;
+	int flags;
+	bool seenOutput;
+	int outputScroll;
+
+	CommandWorker();
+	void Initialise();
+	virtual void Execute();
+};
+
+class Dialog;
 
 inline HWND HwndOf(GUI::Window w) {
 	return reinterpret_cast<HWND>(w.GetID());
@@ -206,7 +226,7 @@ public:
 	virtual void Close();
 	void Focus();
 	virtual bool KeyDown(WPARAM key);
-	void Next(bool markAll);
+	void Next(bool markAll, bool invertDirection);
 	void AddToPopUp(GUI::Menu &popup, const char *label, int cmd, bool checked);
 	void ShowPopup();
 	virtual bool Command(WPARAM wParam);
@@ -248,7 +268,7 @@ public:
 	virtual bool KeyDown(WPARAM key);
 	void AddToPopUp(GUI::Menu &popup, const char *label, int cmd, bool checked);
 	void ShowPopup();
-	void HandleReplaceCommand(int cmd);
+	void HandleReplaceCommand(int cmd, bool reverseFind = false);
 	virtual bool Command(WPARAM wParam);
 	virtual void Size();
 	virtual void Paint(HDC hDC);
@@ -299,9 +319,9 @@ protected:
 	std::deque<GUI::gui_string> dropFilesQueue;
 
 	// Fields also used in tool execution thread
+	CommandWorker cmdWorker;
 	HANDLE hWriteSubProcess;
 	DWORD subProcessGroupId;
-	int outputScroll;
 
 	HACCEL hAccTable;
 
@@ -379,7 +399,7 @@ protected:
 	/// Handle default print setup values and ask the user its preferences.
 	virtual void PrintSetup();
 
-	BOOL HandleReplaceCommand(int cmd);
+	BOOL HandleReplaceCommand(int cmd, bool reverseFind = false);
 
 	virtual int WindowMessageBox(GUI::Window &w, const GUI::gui_string &msg, int style);
 	virtual void FindMessageBox(const SString &msg, const SString *findItem=0);
@@ -471,14 +491,20 @@ public:
 	void CreateUI();
 	/// Management of the command line parameters.
 	void Run(const GUI::gui_char *cmdLine);
-    int EventLoop();
+	uptr_t EventLoop();
 	void OutputAppendEncodedStringSynchronised(GUI::gui_string s, int codePage);
-	DWORD ExecuteOne(const Job &jobToRun, bool &seenOutput);
+	void ResetExecution();
+	void ExecuteNext();
+	DWORD ExecuteOne(const Job &jobToRun);
 	void ProcessExecute();
 	void ShellExec(const SString &cmd, const char *dir);
 	virtual void Execute();
 	virtual void StopExecute();
 	virtual void AddCommand(const SString &cmd, const SString &dir, JobSubsystem jobType, const SString &input = "", int flags=0);
+
+	virtual bool PerformOnNewThread(Worker *pWorker);
+	virtual void PostOnMainThread(int cmd, Worker *pWorker);
+	virtual void WorkerCommand(int cmd, Worker *pWorker);
 
 	void Creation();
 	LRESULT KeyDown(WPARAM wParam);
@@ -506,7 +532,10 @@ inline bool IsKeyDown(int key) {
 	return (::GetKeyState(key) & 0x80000000) != 0;
 }
 
-
-inline GUI::Point PointFromLong(long lPoint) {
+inline GUI::Point PointFromLong(LPARAM lPoint) {
 	return GUI::Point(static_cast<short>(LOWORD(lPoint)), static_cast<short>(HIWORD(lPoint)));
+}
+
+inline int ControlIDOfWParam(WPARAM wParam) {
+	return wParam & 0xffff;
 }

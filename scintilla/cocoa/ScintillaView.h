@@ -34,9 +34,6 @@ extern NSString *SCIUpdateUINotification;
 
   // Set when we are in composition mode and partial input is displayed.
   NSRange mMarkedTextRange;
-  
-  // Caret position when a drag operation started.
-  int mLastPosition;
 }
 
 - (void) dealloc;
@@ -126,6 +123,8 @@ extern NSString *SCIUpdateUINotification;
 - (NSString*) getStringProperty: (int) property parameter: (long) parameter;
 - (void) setLexerProperty: (NSString*) name value: (NSString*) value;
 - (NSString*) getLexerProperty: (NSString*) name;
+
+- (void) registerNotifyCallback: (intptr_t) windowid value: (Scintilla::SciNotifyFunc) callback;
 
 - (void) setInfoBar: (NSView <InfoBarCommunicator>*) aView top: (BOOL) top;
 - (void) setStatusText: (NSString*) text;

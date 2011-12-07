@@ -2,7 +2,7 @@
 /** @file SciTEBase.h
  ** Definition of platform independent base class of editor.
  **/
-// Copyright 1998-2010 by Neil Hodgson <neilh@scintilla.org>
+// Copyright 1998-2011 by Neil Hodgson <neilh@scintilla.org>
 // The License.txt file describes the conditions under which this software may be distributed.
 
 extern const GUI::gui_char appName[];
@@ -52,19 +52,25 @@ enum {
     menuHelp = 8
 };
 
+struct SelectedRange {
+	int position;
+	int anchor;
+	SelectedRange(int position_= INVALID_POSITION, int anchor_= INVALID_POSITION) : 
+		position(position_), anchor(anchor_) {
+	}
+};
+
 class RecentFile : public FilePath {
 public:
-	Sci_CharacterRange selection;
+	SelectedRange selection;
 	int scrollPosition;
 	RecentFile() {
-		selection.cpMin = INVALID_POSITION;
-		selection.cpMax = INVALID_POSITION;
 		scrollPosition = 0;
 	}
 	void Init() {
 		FilePath::Init();
-		selection.cpMin = INVALID_POSITION;
-		selection.cpMax = INVALID_POSITION;
+		selection.position = INVALID_POSITION;
+		selection.anchor = INVALID_POSITION;
 		scrollPosition = 0;
 	}
 };
@@ -75,37 +81,99 @@ enum UniMode {
     uniCookie = 4
 };
 
+struct Worker {
+	virtual ~Worker() {}
+	virtual void Execute() {}
+};
+
+class SciTEBase;
+#ifdef SCI_NAMESPACE
+using Scintilla::ILoader;
+#endif
+
+class FileLoader : public Worker {
+public:
+	SciTEBase *pSciTE;
+	ILoader *pLoader;
+	FilePath path;
+	long size;
+	int err;
+	FILE *fp;
+	volatile bool completed;
+	volatile bool cancelling;
+	long readSoFar;
+	GUI::ElapsedTime et;
+	UniMode unicodeMode;
+
+	FileLoader(SciTEBase *pSciTE_, ILoader *pLoader_, FilePath path_, long size_, FILE *fp_);
+	virtual ~FileLoader();
+	virtual double Duration();
+	virtual void Execute();
+	void Cancel();
+};
+
+struct BufferState : public RecentFile {
+public:
+	std::vector<int> foldState;
+	std::vector<int> bookmarks;
+};
+
+class Session {
+public:
+	FilePath pathActive;
+	std::vector<BufferState> buffers;
+};
+
 class Buffer : public RecentFile {
 public:
 	sptr_t doc;
 	bool isDirty;
 	bool useMonoFont;
+	enum { empty, reading, readAll, open } lifeState;
 	UniMode unicodeMode;
 	time_t fileModTime;
 	time_t fileModLastAsk;
 	enum { fmNone, fmMarked, fmModified} findMarks;
 	SString overrideExtension;	///< User has chosen to use a particular language
 	std::vector<int> foldState;
+	std::vector<int> bookmarks;
+	FileLoader *pFileLoader;
+	PropSetFile props;
 	Buffer() :
-			RecentFile(), doc(0), isDirty(false), useMonoFont(false),
-			unicodeMode(uni8Bit), fileModTime(0), fileModLastAsk(0), findMarks(fmNone), foldState() {}
+			RecentFile(), doc(0), isDirty(false), useMonoFont(false), lifeState(empty),
+			unicodeMode(uni8Bit), fileModTime(0), fileModLastAsk(0), findMarks(fmNone), pFileLoader(0) {}
 
 	void Init() {
 		RecentFile::Init();
 		isDirty = false;
 		useMonoFont = false;
+		lifeState = empty;
 		unicodeMode = uni8Bit;
 		fileModTime = 0;
 		fileModLastAsk = 0;
 		findMarks = fmNone;
 		overrideExtension = "";
 		foldState.clear();
+		bookmarks.clear();
+		pFileLoader = 0;
 	}
 
 	void SetTimeFromFile() {
 		fileModTime = ModifiedTime();
 		fileModLastAsk = fileModTime;
 	}
+
+	void CompleteLoading() {
+		lifeState = open;
+		delete pFileLoader;
+		pFileLoader = 0;
+	}
+
+	bool ShouldNotSave() const {
+		return lifeState != open;
+	}
+
+	void Cancel();
 };
 
 class BufferList {
@@ -122,6 +190,7 @@ public:
 	~BufferList();
 	void Allocate(int maxSize);
 	int Add();
+	int GetDocumentByLoader(FileLoader *pFileLoader) const;
 	int GetDocumentByName(FilePath filename, bool excludeCurrent=false);
 	void RemoveCurrent();
 	int Current() const;
@@ -181,10 +250,11 @@ int IntFromHexByte(const char *hexByte);
 class StyleDefinition {
 public:
 	SString font;
+	float sizeFractional;
 	int size;
 	SString fore;
 	SString back;
-	bool bold;
+	int weight;
 	bool italics;
 	bool eolfilled;
 	bool underlined;
@@ -192,12 +262,14 @@ public:
 	bool visible;
 	bool changeable;
 	enum flags { sdNone = 0, sdFont = 0x1, sdSize = 0x2, sdFore = 0x4, sdBack = 0x8,
-	        sdBold = 0x10, sdItalics = 0x20, sdEOLFilled = 0x40, sdUnderlined = 0x80,
+	        sdWeight = 0x10, sdItalics = 0x20, sdEOLFilled = 0x40, sdUnderlined = 0x80,
 	        sdCaseForce = 0x100, sdVisible = 0x200, sdChangeable = 0x400} specified;
 	StyleDefinition(const char *definition);
 	bool ParseStyleDefinition(const char *definition);
 	long ForeAsLong() const;
 	long BackAsLong() const;
+	int FractionalSize() const;
+	bool IsBold() const;
 };
 
 struct StyleAndWords {
@@ -207,6 +279,24 @@ struct StyleAndWords {
 	}
 	bool IsEmpty() { return words.length() == 0; }
 	bool IsSingleChar() { return words.length() == 1; }
+};
+
+struct CurrentWordHighlight {
+	enum {
+		noDelay,            // No delay, and no word at the caret.
+		delay,              // Delay before to highlight the word at the caret.
+		delayJustEnded,     // Delay has just ended. This state allows to ignore next HighlightCurrentWord (SCN_UPDATEUI and SC_UPDATE_CONTENT for setting indicators).
+		delayAlreadyElapsed // Delay has already elapsed, word at the caret and occurrences are (or have to be) highlighted.
+	} statesOfDelay;
+	bool isEnabled;
+	GUI::ElapsedTime elapsedTimes;
+	bool isOnlyWithSameStyle;
+
+	CurrentWordHighlight() {
+		statesOfDelay = noDelay;
+		isEnabled = false;
+		isOnlyWithSameStyle = false;
+	}
 };
 
 class Localization : public PropSetFile, public ILocalize {
@@ -261,6 +351,14 @@ public:
 	bool &FlagFromCmd(int cmd);
 };
 
+// User interface for search options implemented as both buttons and popup menu items
+struct SearchOption {
+	enum { tWord, tCase, tRegExp, tBackslash, tWrap, tUp };
+	const char *label;
+	int cmd;	// Menu item
+	int id;	// Control in dialog
+};
+
 class SearchUI {
 protected:
 	Searcher *pSearcher;
@@ -270,6 +368,11 @@ public:
 	void SetSearcher(Searcher *pSearcher_) {
 		pSearcher = pSearcher_;
 	}
+};
+
+enum { 
+	WORK_FILEREAD = 1,
+	WORK_PLATFORM = 100
 };
 
 class SciTEBase : public ExtensionAPI, public Searcher {
@@ -284,10 +387,11 @@ protected:
 	enum { fileStackCmdID = IDM_MRUFILE, bufferCmdID = IDM_BUFFER };
 
 	enum { importMax = 50 };
-	FilePath importFiles[importMax];
+	std::vector<FilePath> importFiles;
 	enum { importCmdID = IDM_IMPORT };
+	ImportFilter filter;
 
-	enum { indicatorMatch = INDIC_CONTAINER };
+	enum { indicatorMatch = INDIC_CONTAINER, indicatorHightlightCurrentWord, indicatorSentinel };
 	enum { markerBookmark = 1 };
 	ComboMemory memFiles;
 	ComboMemory memDirectory;
@@ -310,6 +414,8 @@ protected:
 	StringList apis;
 	SString apisFileNames;
 	SString functionDefinition;
+
+	enum { diagnosticStyleStart=256, diagnosticStyleEnd=diagnosticStyleStart+4-1};
 
 	bool indentOpening;
 	bool indentClosing;
@@ -408,7 +514,6 @@ protected:
 	enum { lineNumbersWidthDefault = 4 };
 	bool lineNumbersExpand;
 
-	bool usePalette;
 	bool allowMenuActions;
 	int scrollOutput;
 	bool returnOutputToCommand;
@@ -423,6 +528,7 @@ protected:
 	PropSetFile propsUser;
 	PropSetFile propsDirectory;
 	PropSetFile propsLocal;
+	PropSetFile propsDiscovered;
 	PropSetFile props;
 
 	PropSetFile propsAbbrev;
@@ -440,6 +546,7 @@ protected:
 
 	// Handle buffers
 	sptr_t GetDocumentAt(int index);
+	void SwitchDocumentAt(int index, sptr_t pdoc);
 	int AddBuffer();
 	void UpdateBuffersCurrent();
 	bool IsBufferAvailable();
@@ -448,6 +555,7 @@ protected:
 	Buffer *CurrentBuffer() {
 		return buffers.CurrentBuffer();
 	}
+	void SetBuffersMenu();
 	void BuffersMenu();
 	void Next();
 	void Prev();
@@ -467,7 +575,7 @@ protected:
 	void ReadLocalPropFile();
 	void ReadDirectoryPropFile();
 
-	sptr_t CallFocused(unsigned int msg, uptr_t wParam = 0, sptr_t lParam = 0);
+	int CallFocused(unsigned int msg, uptr_t wParam = 0, sptr_t lParam = 0);
 	sptr_t CallPane(int destination, unsigned int msg, uptr_t wParam = 0, sptr_t lParam = 0);
 	void CallChildren(unsigned int msg, uptr_t wParam = 0, sptr_t lParam = 0);
 	SString GetTranslationToAbout(const char * const propname, bool retainIfNotFound = true);
@@ -494,20 +602,21 @@ protected:
 	FilePath UserFilePath(const GUI::gui_char *name);
 	void LoadSessionFile(const GUI::gui_char *sessionName);
 	void RestoreRecentMenu();
+	void RestoreFromSession(const Session &session);
 	void RestoreSession();
 	void SaveSessionFile(const GUI::gui_char *sessionName);
 	virtual void GetWindowPosition(int *left, int *top, int *width, int *height, int *maximize) = 0;
 	void SetIndentSettings();
 	void SetEol();
 	void New();
-	void RestoreState(const Buffer &buffer);
+	void RestoreState(const Buffer &buffer, bool restoreBookmarks);
 	void Close(bool updateUI = true, bool loadingSession = false, bool makingRoomForNew = false);
 	bool IsAbsolutePath(const char *path);
 	bool Exists(const GUI::gui_char *dir, const GUI::gui_char *path, FilePath *resultPath);
 	void DiscoverEOLSetting();
 	void DiscoverIndentSetting();
-	SString DiscoverLanguage(const char *buf, size_t length);
-	void OpenFile(int fileSize, bool suppressMessage);
+	SString DiscoverLanguage();
+	void OpenFile(long fileSize, bool suppressMessage, bool asynchronous);
 	virtual void OpenUriList(const char *) {}
 	virtual bool OpenDialog(FilePath directory, const GUI::gui_char *filter) = 0;
 	virtual bool SaveAsDialog() = 0;
@@ -519,8 +628,12 @@ protected:
 	    ofNoSaveIfDirty = 1, 	// Suppress check for unsaved changes
 	    ofForceLoad = 2,	// Reload file even if already in a buffer
 	    ofPreserveUndo = 4,	// Do not delete undo history
-	    ofQuiet = 8		// Avoid "Could not open file" message
+	    ofQuiet = 8,		// Avoid "Could not open file" message
+	    ofSynchronous = 16	// Force synchronous read
 	};
+	void TextRead(FileLoader *pFileLoader);
+	enum OpenCompletion { ocSynchronous, ocCompleteCurrent, ocCompleteSwitch };
+	void CompleteOpen(OpenCompletion oc);
 	virtual bool PreOpenCheck(const GUI::gui_char *file);
 	bool Open(FilePath file, OpenFlags of = ofNone);
 	bool OpenSelected();
@@ -559,6 +672,7 @@ protected:
 	virtual void Print(bool) {}
 	virtual void PrintSetup() {}
 	Sci_CharacterRange GetSelection();
+	SelectedRange GetSelectedRange();
 	void SetSelection(int anchor, int currentPos);
 	//	void SelectionExtend(char *sel, int len, char *notselchar);
 	void GetCTag(char *sel, int len);
@@ -613,9 +727,10 @@ protected:
 	void ClearJobQueue();
 	virtual void Execute();
 	virtual void StopExecute() = 0;
+	void ShowMessages(int line);
 	void GoMessage(int dir);
 	virtual bool StartCallTip();
-	char *GetNearestWords(const char *wordStart, int searchLen,
+	char *GetNearestWords(const char *wordStart, size_t searchLen,
 		const char *separators, bool ignoreCase=false, bool exactLen=false);
 	virtual void FillFunctionDefinition(int pos = -1);
 	void ContinueCallTip();
@@ -701,8 +816,8 @@ protected:
 	void DeleteFileStackMenu();
 	void SetFileStackMenu();
 	void DropFileStackTop();
-	bool AddFileToBuffer(FilePath file, int pos);
-	void AddFileToStack(FilePath file, Sci_CharacterRange selection, int scrollPos);
+	bool AddFileToBuffer(const BufferState &bufferState);
+	void AddFileToStack(FilePath file, SelectedRange selection, int scrollPos);
 	void RemoveFileFromStack(FilePath file);
 	RecentFile GetFilePosition();
 	void DisplayAround(const RecentFile &rf);
@@ -736,11 +851,12 @@ protected:
 	SString ExtensionFileName();
 	const char *GetNextPropItem(const char *pStart, char *pPropItem, int maxLen);
 	void ForwardPropertyToEditor(const char *key);
-	void DefineMarker(int marker, int markerType, Colour fore, Colour back);
+	void DefineMarker(int marker, int markerType, Colour fore, Colour back, Colour backSelected);
 	void ReadAPI(const SString &fileNameForExtension);
 	SString FindLanguageProperty(const char *pattern, const char *defaultValue = "");
 	virtual void ReadProperties();
 	void SetOneStyle(GUI::ScintillaWindow &win, int style, const StyleDefinition &sd);
+	void SetStyleBlock(GUI::ScintillaWindow &win, const char *lang, int start, int last);
 	void SetStyleFor(GUI::ScintillaWindow &win, const char *language);
 	void ReloadProperties();
 
@@ -757,7 +873,7 @@ protected:
 	void StopRecordMacro();
 	void StartPlayMacro();
 	bool RecordMacroCommand(SCNotification *notification);
-	void ExecuteMacroCommand(const char * command);
+	void ExecuteMacroCommand(const char *command);
 	void AskMacroList();
 	bool StartMacroList(const char *words);
 	void ContinueMacroList(const char *stxt);
@@ -767,8 +883,9 @@ protected:
 	void OpenFilesFromStdin();
 	enum GrepFlags {
 	    grepNone = 0, grepWholeWord = 1, grepMatchCase = 2, grepStdOut = 4,
-	    grepDot = 8, grepBinary = 16
+	    grepDot = 8, grepBinary = 16, grepScroll = 32
 	};
+	virtual bool GrepIntoDirectory(const FilePath &directory);
 	void GrepRecursive(GrepFlags gf, FilePath baseDir, const char *searchString, const GUI::gui_char *fileTypes);
 	void InternalGrep(GrepFlags gf, const GUI::gui_char *directory, const GUI::gui_char *files, const char *search);
 	void EnumProperties(const char *action);
@@ -794,6 +911,9 @@ protected:
 	bool iswordcharforsel(char ch);
 	bool isfilenamecharforsel(char ch);
 	bool islexerwordcharforsel(char ch);
+
+	CurrentWordHighlight currentWordHighlight;
+	void HighlightCurrentWord(bool highlight);
 public:
 
 	enum { maxParam = 4 };
@@ -803,6 +923,10 @@ public:
 
 	void ProcessExecute();
 	GUI::WindowID GetID() { return wSciTE.GetID(); }
+
+	virtual bool PerformOnNewThread(Worker *pWorker) = 0;
+	virtual void PostOnMainThread(int cmd, Worker *pWorker) = 0;
+	virtual void WorkerCommand(int cmd, Worker *pWorker);
 
 private:
 	// un-implemented copy-constructor and assignment operator

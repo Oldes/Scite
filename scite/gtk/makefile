@@ -14,11 +14,17 @@ CCOMP = gcc
 endif
 AR = ar
 
+ifdef GTK3
+GTKVERSION=gtk+-3.0
+else
+GTKVERSION=gtk+-2.0
+endif
+
 # For the Gnome desktop stuff to work, prefix must point to where Gnome thinks it is.
-CONFIGFLAGS:=$(shell pkg-config --cflags gtk+-2.0)
-CONFIGLIB:=$(shell pkg-config --libs gtk+-2.0 gthread-2.0)
+CONFIGFLAGS:=$(shell pkg-config --cflags $(GTKVERSION))
+CONFIGLIB:=$(shell pkg-config --libs $(GTKVERSION) gthread-2.0)
 CONFIGTHREADS:=
-gnomeprefix:=$(shell pkg-config --variable=prefix gtk+-2.0 2>/dev/null)
+gnomeprefix:=$(shell pkg-config --variable=prefix $(GTKVERSION) 2>/dev/null)
 ifndef prefix
 ifdef gnomeprefix
   prefix=$(gnomeprefix)
@@ -41,7 +47,9 @@ vpath %.h ../src ../../scintilla/include
 vpath %.cxx ../src
 
 INCLUDEDIRS=-I ../../scintilla/include -I ../src
-#~ DEPRECATED=-DGDK_PIXBUF_DISABLE_DEPRECATED -DGDK_DISABLE_DEPRECATED -DGTK_DISABLE_DEPRECATED
+ifdef CHECK_DEPRECATED
+DEPRECATED=-DGDK_PIXBUF_DISABLE_DEPRECATED -DGDK_DISABLE_DEPRECATED -DGTK_DISABLE_DEPRECATED
+endif
 CXXBASEFLAGS=-W -Wall -Wno-char-subscripts -pedantic -DGTK -DSCI_LEXER -DPIXMAP_PATH=\"$(pixmapdir)\" -DSYSCONF_PATH=\"$(SYSCONF_PATH)\" $(INCLUDEDIRS) $(DEPRECATED)
 
 ifdef DEBUG
@@ -60,17 +68,24 @@ LUA_LIB_OBJS =	lauxlib.o lbaselib.o ldblib.o liolib.o lmathlib.o ltablib.o \
 
 LUA_OBJS = LuaExtension.o $(LUA_CORE_OBJS) $(LUA_LIB_OBJS)
 
+vpath %.c ../lua/src ../lua/src/lib
+
 INCLUDEDIRS=-I ../../scintilla/include -I ../src -I../lua/include
-$(LUA_CORE_OBJS): ../lua/src/*.c
-	$(CCOMP) $(INCLUDEDIRS) -DLUA_USE_POSIX $(CXXTFLAGS) -c ../lua/src/*.c
-$(LUA_LIB_OBJS): ../lua/src/lib/*.c
-	$(CCOMP) $(INCLUDEDIRS) -DLUA_USE_POSIX $(CXXTFLAGS) -c ../lua/src/lib/*.c
-CXXFLAGS=$(CXXTFLAGS)
+
+.c.o:
+	$(CCOMP) $(CFLAGS) $(INCLUDEDIRS) -DLUA_USE_POSIX $(CXXTFLAGS) -c $< -o $@
+
 else
-CXXFLAGS=$(CXXTFLAGS) -DNO_LUA
+CXXFLAGS+=-DNO_LUA
 endif
 
-ifeq ($(shell uname), Darwin)
+CXXFLAGS:=$(CXXFLAGS) $(CXXTFLAGS) -Wno-long-long
+
+UNAME:=$(shell uname -s)
+ifeq ($(UNAME), Linux)
+LIBDL:=-ldl
+endif
+ifeq ($(UNAME), Darwin)
 CXXFLAGS:=$(CXXFLAGS) -Dunix
 endif
 
@@ -87,10 +102,10 @@ deps:
 COMPLIB=../../scintilla/bin/scintilla.a
 
 $(PROG): SciTEGTK.o GUIGTK.o Widget.o \
-FilePath.o SciTEBase.o SciTEBuffers.o SciTEIO.o StringList.o Exporters.o StringHelpers.o \
+FilePath.o SciTEBase.o Credits.o SciTEBuffers.o SciTEIO.o StringList.o Exporters.o StringHelpers.o \
 PropSetFile.o MultiplexExtension.o DirectorExtension.o SciTEProps.o StyleWriter.o Utf8_16.o \
 	JobQueue.o GTKMutex.o IFaceTable.o $(COMPLIB) $(LUA_OBJS)
-	$(CC) `$(CONFIGTHREADS)` -rdynamic -Wl,--as-needed -Wl,--version-script lua.vers -DGTK $^ -o $@ $(CONFIGLIB) -ldl -lstdc++
+	$(CC) `$(CONFIGTHREADS)` -rdynamic -Wl,--as-needed -Wl,--version-script lua.vers -DGTK $^ -o $@ $(CONFIGLIB) $(LIBDL) -lstdc++
 
 # Automatically generate header dependencies with "make deps"
 include deps.mak
@@ -109,8 +124,9 @@ install:
 	done
 
 ifdef gnomeprefix
-	$(INSTALL) -m 755 -D SciTE.desktop $(DESTDIR)$(datadir)/applications/SciTE.desktop
-	$(INSTALL) -m 644 -D Sci48M.png $(DESTDIR)$(pixmapdir)/Sci48M.png
+	$(INSTALL) -m 755 -d $(DESTDIR)$(datadir)/applications $(DESTDIR)$(pixmapdir)
+	$(INSTALL) -m 755 SciTE.desktop $(DESTDIR)$(datadir)/applications/SciTE.desktop
+	$(INSTALL) -m 644 Sci48M.png $(DESTDIR)$(pixmapdir)/Sci48M.png
 endif
 
 uninstall:

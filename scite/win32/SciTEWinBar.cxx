@@ -97,7 +97,8 @@ void SciTEWin::Notify(SCNotification *notification) {
 	case TCN_SELCHANGE:
 		// Change of tab
 		if (notification->nmhdr.idFrom == IDM_TABWIN) {
-			int index = ::SendMessage(static_cast<HWND>(wTabBar.GetID()), TCM_GETCURSEL, (WPARAM)0, (LPARAM)0);
+			int index = static_cast<int>(
+				::SendMessage(static_cast<HWND>(wTabBar.GetID()), TCM_GETCURSEL, (WPARAM)0, (LPARAM)0));
 			SetDocumentAt(index);
 			CheckReload();
 		}
@@ -240,7 +241,8 @@ void SciTEWin::Notify(SCNotification *notification) {
 					TCHITTESTINFO info;
 					info.pt.x = ptClient.x;
 					info.pt.y = ptClient.y;
-					int index = ::SendMessage(static_cast<HWND>(wTabBar.GetID()), TCM_HITTEST, (WPARAM)0, (LPARAM) & info);
+					int index = static_cast<int>(
+						::SendMessage(static_cast<HWND>(wTabBar.GetID()), TCM_HITTEST, (WPARAM)0, (LPARAM) & info));
 					if (index >= 0) {
 						GUI::gui_string path = buffers.buffers[index].AsInternal();
 						// Handle '&' characters in path, since they are interpreted in
@@ -436,13 +438,12 @@ void SciTEWin::SetMenuItem(int menuNumber, int position, int itemID,
 		// tools, and for other menu entries it is just discarded.
 	}
 
-	if (::GetMenuState(hmenu, itemID, MF_BYCOMMAND) == 0xffffffff) {
-		if (text[0])
-			::InsertMenuW(hmenu, position, MF_BYPOSITION, itemID, sTextMnemonic.c_str());
-		else
-			::InsertMenuW(hmenu, position, MF_BYPOSITION | MF_SEPARATOR, itemID, sTextMnemonic.c_str());
+	UINT typeFlags = (text[0]) ? MF_STRING : MF_SEPARATOR;
+	if (::GetMenuState(hmenu, itemID, MF_BYCOMMAND) == (UINT)(-1)) {
+		// Not present so insert
+		::InsertMenuW(hmenu, position, MF_BYPOSITION | typeFlags, itemID, sTextMnemonic.c_str());
 	} else {
-		::ModifyMenuW(hmenu, position, MF_BYCOMMAND, itemID, sTextMnemonic.c_str());
+		::ModifyMenuW(hmenu, itemID, MF_BYCOMMAND | typeFlags, itemID, sTextMnemonic.c_str());
 	}
 
 	if (itemID >= IDM_TOOLS && itemID < IDM_TOOLS + toolMax) {
@@ -731,7 +732,7 @@ static LRESULT PASCAL TabWndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM
 			thti.pt.x = pt.x;
 			thti.pt.y = pt.y;
 			thti.flags = 0;
-			st_iLastClickTab = ::SendMessage(hWnd, TCM_HITTEST, (WPARAM)0, (LPARAM) & thti);
+			st_iLastClickTab = static_cast<int>(::SendMessage(hWnd, TCM_HITTEST, (WPARAM)0, (LPARAM) & thti));
 		}
 		break;
 	}
@@ -752,7 +753,7 @@ static LRESULT PASCAL TabWndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM
 			thti.pt.x = pt.x;
 			thti.pt.y = pt.y;
 			thti.flags = 0;
-			int tab = ::SendMessage(hWnd, TCM_HITTEST, (WPARAM)0, (LPARAM) & thti);
+			int tab = static_cast<int>(::SendMessage(hWnd, TCM_HITTEST, (WPARAM)0, (LPARAM) & thti));
 			if (tab >= 0) {
 				::SendMessage(::GetParent(hWnd), WM_COMMAND, IDC_TABCLOSE, (LPARAM)tab);
 			}
@@ -771,7 +772,7 @@ static LRESULT PASCAL TabWndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM
 				thti.pt.x = pt.x;
 				thti.pt.y = pt.y;
 				thti.flags = 0;
-				int tab = ::SendMessage(hWnd, TCM_HITTEST, (WPARAM)0, (LPARAM) & thti);
+				int tab = static_cast<int>(::SendMessage(hWnd, TCM_HITTEST, (WPARAM)0, (LPARAM) & thti));
 				if (tab > -1 && st_iDraggingTab > -1 && st_iDraggingTab != tab) {
 					::SendMessage(::GetParent(hWnd),
 					        WM_COMMAND,
@@ -805,8 +806,8 @@ static LRESULT PASCAL TabWndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM
 			thti.pt.x = pt.x;
 			thti.pt.y = pt.y;
 			thti.flags = 0;
-			int tab = ::SendMessage(hWnd, TCM_HITTEST, (WPARAM)0, (LPARAM) & thti);
-			int tabcount = ::SendMessage(hWnd, TCM_GETITEMCOUNT, (WPARAM)0, (LPARAM)0);
+			int tab = static_cast<int>(::SendMessage(hWnd, TCM_HITTEST, (WPARAM)0, (LPARAM) & thti));
+			int tabcount = static_cast<int>(::SendMessage(hWnd, TCM_GETITEMCOUNT, (WPARAM)0, (LPARAM)0));
 
 			if (wParam == MK_LBUTTON &&
 			        tabcount > 1 &&
@@ -845,7 +846,7 @@ static LRESULT PASCAL TabWndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM
 				thti.pt.x = ptClient.x;
 				thti.pt.y = ptClient.y;
 				thti.flags = 0;
-				int tab = ::SendMessage(hWnd, TCM_HITTEST, (WPARAM)0, (LPARAM) & thti);
+				int tab = static_cast<int>(::SendMessage(hWnd, TCM_HITTEST, (WPARAM)0, (LPARAM) & thti));
 
 				RECT tabrc;
 				if (tab != -1 &&

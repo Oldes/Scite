@@ -121,6 +121,14 @@ void FilePath::Init() {
 	fileName = GUI_TEXT("");
 }
 
+bool FilePath::operator==(const FilePath &other) const {
+	return SameNameAs(other);
+}
+
+bool FilePath::operator<(const FilePath &other) const {
+	return fileName < other.fileName;
+}
+
 bool FilePath::SameNameAs(const GUI::gui_char *other) const {
 #ifdef WIN32
 	return CSTR_EQUAL == CompareString(LOCALE_SYSTEM_DEFAULT, NORM_IGNORECASE,
@@ -393,9 +401,9 @@ void FilePath::List(FilePathSet &directories, FilePathSet &files) {
 		while (!complete) {
 			if ((strcmp(findFileData.cFileName, GUI_TEXT(".")) != 0) && (strcmp(findFileData.cFileName, GUI_TEXT("..")) != 0)) {
 				if (findFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-					directories.Append(FilePath(AsInternal(), findFileData.cFileName));
+					directories.push_back(FilePath(AsInternal(), findFileData.cFileName));
 				} else {
-					files.Append(FilePath(AsInternal(), findFileData.cFileName));
+					files.push_back(FilePath(AsInternal(), findFileData.cFileName));
 				}
 			}
 			if (!::FindNextFileW(hFind, &findFileData)) {
@@ -416,15 +424,17 @@ void FilePath::List(FilePathSet &directories, FilePathSet &files) {
 		if ((strcmp(ent->d_name, ".") != 0) && (strcmp(ent->d_name, "..") != 0)) {
 			FilePath pathFull(AsInternal(), ent->d_name);
 			if (pathFull.IsDirectory()) {
-				directories.Append(pathFull);
+				directories.push_back(pathFull);
 			} else {
-				files.Append(pathFull);
+				files.push_back(pathFull);
 			}
 		}
 	}
 
 	closedir(dp);
 #endif
+	std::sort(files.begin(), files.end());
+	std::sort(directories.begin(), directories.end());
 }
 
 FILE *FilePath::Open(const GUI::gui_char *mode) const {
@@ -464,8 +474,8 @@ time_t FilePath::ModifiedTime() const {
 		return 0;
 }
 
-int FilePath::GetFileLength() const {
-	int size = -1;
+long FilePath::GetFileLength() const {
+	long size = -1;
 	if (IsSet()) {
 		FILE *fp = Open(fileRead);
 		if (fp) {
@@ -512,9 +522,9 @@ bool FilePath::IsDirectory() const {
 
 #ifdef _WIN32
 void Lowercase(GUI::gui_string &s) {
-	int chars = ::LCMapString(LOCALE_SYSTEM_DEFAULT, LCMAP_LOWERCASE, s.c_str(), s.size()+1, NULL, 0);
+	int chars = ::LCMapString(LOCALE_SYSTEM_DEFAULT, LCMAP_LOWERCASE, s.c_str(), static_cast<int>(s.size())+1, NULL, 0);
 	std::vector<wchar_t> vc(chars);
-	::LCMapString(LOCALE_SYSTEM_DEFAULT, LCMAP_LOWERCASE, s.c_str(), s.size()+1, &vc[0], chars);
+	::LCMapString(LOCALE_SYSTEM_DEFAULT, LCMAP_LOWERCASE, s.c_str(), static_cast<int>(s.size())+1, &vc[0], chars);
 	s = &vc[0];
 }
 #endif
@@ -594,46 +604,106 @@ void FilePath::FixName() {
 #endif
 }
 
-FilePathSet::FilePathSet(int size_) {
-	size = size_;
-	body = new FilePath[size];
-	lengthBody = 0;
-}
+std::string CommandExecute(const GUI::gui_char *command, const GUI::gui_char *directoryForRun) {
+	std::string output;
+	char buffer[16 * 1024];
+#ifdef _WIN32
+	SECURITY_ATTRIBUTES sa = {sizeof(SECURITY_ATTRIBUTES), 0, 0};
+	sa.bInheritHandle = TRUE;
+	sa.lpSecurityDescriptor = NULL;
 
-FilePathSet::FilePathSet(const FilePathSet &other) {
-	size = other.size;
-	lengthBody = other.lengthBody;
-	body = new FilePath[size];
-	for (size_t i = 0; i < lengthBody; i++) {
-		body[i] = other.body[i];
-	}
-}
+	SECURITY_DESCRIPTOR sd;
+	// Make a real security thing to allow inheriting handles
+	::InitializeSecurityDescriptor(&sd, SECURITY_DESCRIPTOR_REVISION);
+	::SetSecurityDescriptorDacl(&sd, TRUE, NULL, FALSE);
+	sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+	sa.lpSecurityDescriptor = &sd;
 
-FilePathSet::~FilePathSet() {
-	delete []body;
-	body = NULL;
-	size = 0;
-	lengthBody = 0;
-}
+	HANDLE hPipeWrite = NULL;
+	HANDLE hPipeRead = NULL;
+	// Create pipe for output redirection
+	// read handle, write handle, security attributes,  number of bytes reserved for pipe - 0 default
+	::CreatePipe(&hPipeRead, &hPipeWrite, &sa, 0);
 
-FilePath FilePathSet::At(size_t pos) const {
-	return body[pos];
-}
+	// Create pipe for input redirection. In this code, you do not
+	// redirect the output of the child process, but you need a handle
+	// to set the hStdInput field in the STARTUP_INFO struct. For safety,
+	// you should not set the handles to an invalid handle.
 
-void FilePathSet::Append(FilePath fp) {
-	if (lengthBody >= size) {
-		size *= 2;
-		FilePath *bodyNew = new FilePath[size];
-		for (size_t i = 0; i < lengthBody; i++) {
-			bodyNew[i] = body[i];
+	HANDLE hWriteSubProcess = NULL;
+	//subProcessGroupId = 0;
+	HANDLE hRead2 = NULL;
+	// read handle, write handle, security attributes,  number of bytes reserved for pipe - 0 default
+	::CreatePipe(&hRead2, &hWriteSubProcess, &sa, 0);
+
+	::SetHandleInformation(hPipeRead, HANDLE_FLAG_INHERIT, 0);
+	::SetHandleInformation(hWriteSubProcess, HANDLE_FLAG_INHERIT, 0);
+
+	// Make child process use hPipeWrite as standard out, and make
+	// sure it does not show on screen.
+	STARTUPINFOW si = {
+			     sizeof(STARTUPINFO), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+			 };
+	si.dwFlags = STARTF_USESHOWWINDOW | STARTF_USESTDHANDLES;
+	si.wShowWindow = SW_HIDE;
+	si.hStdInput = hRead2;
+	si.hStdOutput = hPipeWrite;
+	si.hStdError = hPipeWrite;
+
+	PROCESS_INFORMATION pi = {0, 0, 0, 0};
+
+	bool running = ::CreateProcessW(
+			  NULL,
+			  const_cast<wchar_t *>(command),
+			  NULL, NULL,
+			  TRUE, CREATE_NEW_PROCESS_GROUP,
+			  NULL,
+			  (directoryForRun && directoryForRun[0]) ? directoryForRun : 0,
+			  &si, &pi);
+
+	if (running) {
+		// Wait until child process exits but time out after 5 seconds.
+		::WaitForSingleObject(pi.hProcess, 5 * 1000);
+		
+		DWORD bytesRead = 0;
+		DWORD bytesAvail = 0;
+
+		if (::PeekNamedPipe(hPipeRead, buffer, sizeof(buffer), &bytesRead, &bytesAvail, NULL)) {
+			if (bytesAvail > 0) {
+				int bTest = ::ReadFile(hPipeRead, buffer, sizeof(buffer), &bytesRead, NULL);
+				while (bTest && bytesRead) {
+					output.append(buffer, buffer+bytesRead);
+					bytesRead = 0;
+					if (::PeekNamedPipe(hPipeRead, buffer, sizeof(buffer), &bytesRead, &bytesAvail, NULL)) {
+						if (bytesAvail) {
+							bTest = ::ReadFile(hPipeRead, buffer, sizeof(buffer), &bytesRead, NULL);
+						}
+					}
+				}
+			}
 		}
-		delete []body;
-		body = bodyNew;
 	}
-	body[lengthBody++] = fp;
-}
 
-size_t FilePathSet::Length() const {
-	return lengthBody;
-}
+	::CloseHandle(pi.hProcess);
+	::CloseHandle(pi.hThread);
+	::CloseHandle(hPipeRead);
+	::CloseHandle(hPipeWrite);
+	::CloseHandle(hRead2);
+	::CloseHandle(hWriteSubProcess);
 
+#else
+	FilePath startDirectory= FilePath::GetWorkingDirectory();	// Save
+	FilePath(directoryForRun).SetWorkingDirectory();
+	FILE *fp = popen(command, "r");
+	if (fp) {
+		size_t lenData = fread(buffer, 1, sizeof(buffer), fp);
+		while (lenData > 0) {
+			output.append(buffer, buffer+lenData);
+			lenData = fread(buffer, 1, sizeof(buffer), fp);
+		}
+		pclose(fp);
+	}
+	startDirectory.SetWorkingDirectory();
+#endif
+	return output;
+}

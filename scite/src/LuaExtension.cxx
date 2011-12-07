@@ -10,6 +10,7 @@
 #include <time.h>
 
 #include <string>
+#include <vector>
 
 #include "Scintilla.h"
 
@@ -118,8 +119,8 @@ inline bool IFaceFunctionIsScriptable(const IFaceFunction &f) {
 
 inline bool IFacePropertyIsScriptable(const IFaceProperty &p) {
 	return (((p.valueType > iface_void) && (p.valueType <= iface_string) && (p.valueType != iface_keymod)) &&
-		((p.paramType < iface_colour) || (p.paramType == iface_string) ||
-		(p.paramType == iface_bool)) && (p.getter || p.setter));
+	        ((p.paramType < iface_colour) || (p.paramType == iface_string) ||
+	                (p.paramType == iface_bool)) && (p.getter || p.setter));
 }
 
 inline void raise_error(lua_State *L, const char *errMsg=NULL) {
@@ -135,7 +136,7 @@ inline void raise_error(lua_State *L, const char *errMsg=NULL) {
 
 inline int absolute_index(lua_State *L, int index) {
 	return ((index < 0) && (index != LUA_REGISTRYINDEX) && (index != LUA_GLOBALSINDEX))
-		? (lua_gettop(L) + index + 1) : index;
+	       ? (lua_gettop(L) + index + 1) : index;
 }
 
 // copy the contents of one table into another returning the size
@@ -291,14 +292,14 @@ static int cf_scite_update_status_bar(lua_State *L) {
 }
 
 static ExtensionAPI::Pane check_pane_object(lua_State *L, int index) {
-	ExtensionAPI::Pane *pPane = reinterpret_cast<ExtensionAPI::Pane*>(checkudata(L, index, "SciTE_MT_Pane"));
+	ExtensionAPI::Pane *pPane = reinterpret_cast<ExtensionAPI::Pane *>(checkudata(L, index, "SciTE_MT_Pane"));
 
 	if ((!pPane) && lua_istable(L, index)) {
 		// so that nested objects have a convenient way to do a back reference
 		int absIndex = absolute_index(L, index);
 		lua_pushliteral(L, "pane");
 		lua_gettable(L, absIndex);
-		pPane = reinterpret_cast<ExtensionAPI::Pane*>(checkudata(L, -1, "SciTE_MT_Pane"));
+		pPane = reinterpret_cast<ExtensionAPI::Pane *>(checkudata(L, -1, "SciTE_MT_Pane"));
 	}
 
 	if (pPane) {
@@ -362,7 +363,7 @@ static int cf_pane_remove(lua_State *L) {
 static int cf_pane_append(lua_State *L) {
 	ExtensionAPI::Pane p = check_pane_object(L, 1);
 	const char *s = luaL_checkstring(L, 2);
-	host->Insert(p, host->Send(p, SCI_GETLENGTH, 0, 0), s);
+	host->Insert(p, static_cast<int>(host->Send(p, SCI_GETLENGTH, 0, 0)), s);
 	return 0;
 }
 
@@ -377,7 +378,7 @@ static int cf_pane_findtext(lua_State *L) {
 	if (!hasError) {
 		Sci_TextToFind ft = {{0, 0}, 0, {0, 0}};
 
-		ft.lpstrText = const_cast<char*>(t);
+		ft.lpstrText = const_cast<char *>(t);
 
 		int flags = (nArgs > 2) ? luaL_checkint(L, 3) : 0;
 		hasError = (flags == 0 && lua_gettop(L) > nArgs);
@@ -394,12 +395,12 @@ static int cf_pane_findtext(lua_State *L) {
 				ft.chrg.cpMax = static_cast<int>(luaL_checkint(L,5));
 				hasError = (lua_gettop(L) > nArgs);
 			} else {
-				ft.chrg.cpMax = host->Send(p, SCI_GETLENGTH, 0, 0);
+				ft.chrg.cpMax = static_cast<long>(host->Send(p, SCI_GETLENGTH, 0, 0));
 			}
 		}
 
 		if (!hasError) {
-			int result = host->Send(p, SCI_FINDTEXT, static_cast<uptr_t>(flags), reinterpret_cast<sptr_t>(&ft));
+			sptr_t result = host->Send(p, SCI_FINDTEXT, static_cast<uptr_t>(flags), reinterpret_cast<sptr_t>(&ft));
 			if (result >= 0) {
 				lua_pushnumber(L, ft.chrgText.cpMin);
 				lua_pushnumber(L, ft.chrgText.cpMax);
@@ -424,14 +425,14 @@ static int cf_pane_findtext(lua_State *L) {
 
 struct PaneMatchObject {
 	ExtensionAPI::Pane pane;
-	long startPos;
-	long endPos;
+	int startPos;
+	int endPos;
 	int flags; // this is really part of the state, but is kept here for convenience
-	long endPosOrig; // has to do with preventing infinite loop on a 0-length match
+	int endPosOrig; // has to do with preventing infinite loop on a 0-length match
 };
 
 static int cf_match_replace(lua_State *L) {
-	PaneMatchObject *pmo = reinterpret_cast<PaneMatchObject*>(checkudata(L, 1, "SciTE_MT_PaneMatchObject"));
+	PaneMatchObject *pmo = reinterpret_cast<PaneMatchObject *>(checkudata(L, 1, "SciTE_MT_PaneMatchObject"));
 	if (!pmo) {
 		raise_error(L, "Self argument for match:replace() should be a pane match object.");
 		return 0;
@@ -451,12 +452,12 @@ static int cf_match_replace(lua_State *L) {
 	host->Send(pmo->pane, SCI_SETTARGETSTART, pmo->startPos, 0);
 	host->Send(pmo->pane, SCI_SETTARGETEND, pmo->endPos, 0);
 	host->Send(pmo->pane, SCI_REPLACETARGET, lua_strlen(L, 2), reinterpret_cast<sptr_t>(replacement));
-	pmo->endPos = host->Send(pmo->pane, SCI_GETTARGETEND, 0, 0);
+	pmo->endPos = static_cast<int>(host->Send(pmo->pane, SCI_GETTARGETEND, 0, 0));
 	return 0;
 }
 
 static int cf_match_metatable_index(lua_State *L) {
-	PaneMatchObject *pmo = reinterpret_cast<PaneMatchObject*>(checkudata(L, 1, "SciTE_MT_PaneMatchObject"));
+	PaneMatchObject *pmo = reinterpret_cast<PaneMatchObject *>(checkudata(L, 1, "SciTE_MT_PaneMatchObject"));
 	if (!pmo) {
 		raise_error(L, "Internal error: pane match object is missing.");
 		return 0;
@@ -502,7 +503,7 @@ static int cf_match_metatable_index(lua_State *L) {
 }
 
 static int cf_match_metatable_tostring(lua_State *L) {
-	PaneMatchObject *pmo = reinterpret_cast<PaneMatchObject*>(checkudata(L, 1, "SciTE_MT_PaneMatchObject"));
+	PaneMatchObject *pmo = reinterpret_cast<PaneMatchObject *>(checkudata(L, 1, "SciTE_MT_PaneMatchObject"));
 	if (!pmo) {
 		raise_error(L, "Internal error: pane match object is missing.");
 		return 0;
@@ -534,7 +535,7 @@ static int cf_pane_match(lua_State *L) {
 	// more convenient to leave in Lua form.
 	lua_pushvalue(L, 2);
 
-	PaneMatchObject *pmo = reinterpret_cast<PaneMatchObject*>(lua_newuserdata(L, sizeof(PaneMatchObject)));
+	PaneMatchObject *pmo = reinterpret_cast<PaneMatchObject *>(lua_newuserdata(L, sizeof(PaneMatchObject)));
 	if (pmo) {
 		pmo->pane = p;
 		pmo->startPos = -1;
@@ -571,7 +572,7 @@ static int cf_pane_match(lua_State *L) {
 
 static int cf_pane_match_generator(lua_State *L) {
 	const char *text = lua_tostring(L, 1);
-	PaneMatchObject *pmo = reinterpret_cast<PaneMatchObject*>(checkudata(L, 2, "SciTE_MT_PaneMatchObject"));
+	PaneMatchObject *pmo = reinterpret_cast<PaneMatchObject *>(checkudata(L, 2, "SciTE_MT_PaneMatchObject"));
 
 	if (!(text)) {
 		raise_error(L, "Internal error: invalid state for <pane>:match generator.");
@@ -594,14 +595,14 @@ static int cf_pane_match_generator(lua_State *L) {
 
 	Sci_TextToFind ft = { {0,0}, 0, {0,0} };
 	ft.chrg.cpMin = searchPos;
-	ft.chrg.cpMax = host->Send(pmo->pane, SCI_GETLENGTH, 0, 0);
-	ft.lpstrText = const_cast<char*>(text);
+	ft.chrg.cpMax = static_cast<long>(host->Send(pmo->pane, SCI_GETLENGTH, 0, 0));
+	ft.lpstrText = const_cast<char *>(text);
 
 	if (ft.chrg.cpMax > ft.chrg.cpMin) {
-		int result = host->Send(pmo->pane, SCI_FINDTEXT, static_cast<uptr_t>(pmo->flags), reinterpret_cast<sptr_t>(&ft));
+		sptr_t result = host->Send(pmo->pane, SCI_FINDTEXT, static_cast<uptr_t>(pmo->flags), reinterpret_cast<sptr_t>(&ft));
 		if (result >= 0) {
-			pmo->startPos = ft.chrgText.cpMin;
-			pmo->endPos = pmo->endPosOrig = ft.chrgText.cpMax;
+			pmo->startPos = static_cast<int>(ft.chrgText.cpMin);
+			pmo->endPos = pmo->endPosOrig = static_cast<int>(ft.chrgText.cpMax);
 			lua_pushvalue(L, 2);
 			return 1;
 		}
@@ -852,7 +853,7 @@ static int iface_function_helper(lua_State *L, const IFaceFunction &func) {
 	}
 
 	if (needStringResult) {
-		int stringResultLen = host->Send(p, func.value, params[0], 0);
+		sptr_t stringResultLen = host->Send(p, func.value, params[0], 0);
 		if (stringResultLen > 0) {
 			// not all string result methods are guaranteed to add a null terminator
 			stringResult = new char[stringResultLen+1];
@@ -878,7 +879,7 @@ static int iface_function_helper(lua_State *L, const IFaceFunction &func) {
 	// - numeric return type gets returned to lua as a number (following the stringresult)
 	// - other return types e.g. void get dropped.
 
-	int result = host->Send(p, func.value, params[0], params[1]);
+	sptr_t result = host->Send(p, func.value, params[0], params[1]);
 
 	int resultCount = 0;
 
@@ -889,10 +890,10 @@ static int iface_function_helper(lua_State *L, const IFaceFunction &func) {
 	}
 
 	if (func.returnType == iface_bool) {
-		lua_pushboolean(L, result);
+		lua_pushboolean(L, static_cast<int>(result));
 		resultCount++;
 	} else if (IFaceTypeIsNumeric(func.returnType)) {
-		lua_pushnumber(L, result);
+		lua_pushnumber(L, static_cast<int>(result));
 		resultCount++;
 	}
 
@@ -907,7 +908,7 @@ struct IFacePropertyBinding {
 static int cf_ifaceprop_metatable_index(lua_State *L) {
 	// if there is a getter, __index calls it
 	// otherwise, __index raises "property 'name' is write-only".
-	IFacePropertyBinding *ipb = reinterpret_cast<IFacePropertyBinding*>(checkudata(L, 1, "SciTE_MT_IFacePropertyBinding"));
+	IFacePropertyBinding *ipb = reinterpret_cast<IFacePropertyBinding *>(checkudata(L, 1, "SciTE_MT_IFacePropertyBinding"));
 	if (!(ipb && IFacePropertyIsScriptable(*(ipb->prop)))) {
 		raise_error(L, "Internal error: property binding is improperly set up");
 		return 0;
@@ -926,7 +927,7 @@ static int cf_ifaceprop_metatable_index(lua_State *L) {
 }
 
 static int cf_ifaceprop_metatable_newindex(lua_State *L) {
-	IFacePropertyBinding *ipb = reinterpret_cast<IFacePropertyBinding*>(checkudata(L, 1, "SciTE_MT_IFacePropertyBinding"));
+	IFacePropertyBinding *ipb = reinterpret_cast<IFacePropertyBinding *>(checkudata(L, 1, "SciTE_MT_IFacePropertyBinding"));
 	if (!(ipb && IFacePropertyIsScriptable(*(ipb->prop)))) {
 		raise_error(L, "Internal error: property binding is improperly set up");
 		return 0;
@@ -960,7 +961,7 @@ static int push_iface_function(lua_State *L, const char *name) {
 	int i = IFaceTable::FindFunction(name);
 	if (i >= 0) {
 		if (IFaceFunctionIsScriptable(IFaceTable::functions[i])) {
-			lua_pushlightuserdata(L, const_cast<IFaceFunction*>(IFaceTable::functions+i));
+			lua_pushlightuserdata(L, const_cast<IFaceFunction *>(IFaceTable::functions+i));
 			lua_pushcclosure(L, cf_pane_iface_function, 1);
 
 			// Since Lua experts say it is inefficient to create closures / cfunctions
@@ -1012,7 +1013,7 @@ static int push_iface_propval(lua_State *L, const char *name) {
 			// if there is a setter, __newindex calls it
 			// otherwise, __newindex raises "property 'name' is read-only"
 
-			IFacePropertyBinding *ipb = reinterpret_cast<IFacePropertyBinding*>(lua_newuserdata(L, sizeof(IFacePropertyBinding)));
+			IFacePropertyBinding *ipb = reinterpret_cast<IFacePropertyBinding *>(lua_newuserdata(L, sizeof(IFacePropertyBinding)));
 			if (ipb) {
 				ipb->pane = check_pane_object(L, 1);
 				ipb->prop = &prop;
@@ -1101,7 +1102,7 @@ static int cf_pane_metatable_newindex(lua_State *L) {
 }
 
 void push_pane_object(lua_State *L, ExtensionAPI::Pane p) {
-	*reinterpret_cast<ExtensionAPI::Pane*>(lua_newuserdata(L, sizeof(p))) = p;
+	*reinterpret_cast<ExtensionAPI::Pane *>(lua_newuserdata(L, sizeof(p))) = p;
 	if (luaL_newmetatable(L, "SciTE_MT_Pane")) {
 		lua_pushcfunction(L, cf_pane_metatable_index);
 		lua_setfield(L, -2, "__index");
@@ -1441,7 +1442,7 @@ bool LuaExtension::Load(const char *filename) {
 	bool loaded = false;
 
 	if (!luaDisabled) {
-		int sl = strlen(filename);
+		size_t sl = strlen(filename);
 		if (sl >= 4 && strcmp(filename+sl-4, ".lua")==0) {
 			if (luaState || InitGlobalScope(false)) {
 				extensionScript = filename;
@@ -1651,7 +1652,7 @@ struct StylingContext {
 
 	static StylingContext *Context(lua_State *L) {
 		return reinterpret_cast<StylingContext *>(
-			lua_touserdata(L, lua_upvalueindex(1)));
+		        lua_touserdata(L, lua_upvalueindex(1)));
 	}
 
 	void Colourize() {
@@ -1707,8 +1708,8 @@ struct StylingContext {
 	static int SetLineState(lua_State *L) {
 		StylingContext *context = Context(L);
 		int line = luaL_checkint(L, 2);
-		int state = luaL_checkint(L, 3);
-		context->styler->SetLineState(line, state);
+		int stateOfLine = luaL_checkint(L, 3);
+		context->styler->SetLineState(line, stateOfLine);
 		return 0;
 	}
 
@@ -1748,8 +1749,8 @@ struct StylingContext {
 		// or on LF alone (Unix). Avoid triggering two times on Dos/Win.
 		char ch = cursor[(cursorPos) % 3][0];
 		atLineEnd = (ch == '\r' && cursor[nextSlot][0] != '\n') ||
-					(ch == '\n') ||
-					(currentPos >= endPos);
+		        (ch == '\n') ||
+		        (currentPos >= endPos);
 	}
 
 	void StartStyling(unsigned int startPos_, unsigned int length, int initStyle_) {
@@ -1783,10 +1784,10 @@ struct StylingContext {
 
 	static int StartStyling(lua_State *L) {
 		StylingContext *context = Context(L);
-		unsigned int startPos = luaL_checkint(L, 2);
-		unsigned int length = luaL_checkint(L, 3);
-        int initStyle = luaL_checkint(L, 4);
-		context->StartStyling(startPos, length, initStyle);
+		unsigned int startPosStyle = luaL_checkint(L, 2);
+		unsigned int lengthStyle = luaL_checkint(L, 3);
+		int initialStyle = luaL_checkint(L, 4);
+		context->StartStyling(startPosStyle, lengthStyle, initialStyle);
 		return 0;
 	}
 
@@ -1931,7 +1932,7 @@ bool LuaExtension::OnStyle(unsigned int startPos, int lengthDoc, int initStyle, 
 			sc.lengthDoc = lengthDoc;
 			sc.initStyle = initStyle;
 			sc.styler = styler;
-			sc.codePage = host->Send(ExtensionAPI::paneEditor, SCI_GETCODEPAGE);
+			sc.codePage = static_cast<int>(host->Send(ExtensionAPI::paneEditor, SCI_GETCODEPAGE));
 
 			lua_newtable(luaState);
 

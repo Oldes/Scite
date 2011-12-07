@@ -44,7 +44,6 @@
 #endif
 
 #ifndef NO_LUA
-#include "SingleThreadExtension.h"
 #include "LuaExtension.h"
 #endif
 
@@ -202,7 +201,6 @@ SciTEWin::SciTEWin(Extension *ext) : SciTEBase(ext) {
 
 	hWriteSubProcess = NULL;
 	subProcessGroupId = 0;
-	outputScroll = 1;
 
 	// Read properties resource into propsEmbed
 	// The embedded properties file is to allow distributions to be sure
@@ -221,7 +219,7 @@ SciTEWin::SciTEWin(Extension *ext) : SciTEBase(ext) {
 			const void *pv = ::LockResource(hmem);
 			if (pv) {
 				propsEmbed.ReadFromMemory(
-				    reinterpret_cast<const char *>(pv), size, FilePath());
+				    reinterpret_cast<const char *>(pv), size, FilePath(), filter);
 			}
 		}
 		::FreeResource(handProps);
@@ -243,6 +241,8 @@ SciTEWin::SciTEWin(Extension *ext) : SciTEBase(ext) {
 	uniqueInstance.Init(this);
 
 	hAccTable = ::LoadAccelerators(hInstance, TEXT("ACCELS")); // md
+
+	cmdWorker.pSciTE = this;
 }
 
 SciTEWin::~SciTEWin() {
@@ -396,8 +396,6 @@ FILE *scite_lua_popen(const char *filename, const char *mode) {
 
 void SciTEWin::ReadProperties() {
 	SciTEBase::ReadProperties();
-
-	outputScroll = props.GetInt("output.scroll", 1);
 }
 
 static FilePath GetSciTEPath(FilePath home) {
@@ -584,7 +582,7 @@ HWND SciTEWin::MainHWND() {
 }
 
 void SciTEWin::Command(WPARAM wParam, LPARAM lParam) {
-	int cmdID = ControlIDOfCommand(wParam);
+	int cmdID = ControlIDOfWParam(wParam);
 	if (wParam & 0x10000) {
 		// From accelerator -> goes to focused pane.
 		menuSource = 0;
@@ -671,12 +669,49 @@ static UINT CodePageFromCharSet(DWORD characterSet, UINT documentCodePage) {
 }
 
 void SciTEWin::OutputAppendEncodedStringSynchronised(GUI::gui_string s, int codePage) {
-	int cchMulti = ::WideCharToMultiByte(codePage, 0, s.c_str(), s.size(), NULL, 0, NULL, NULL);
+	int cchMulti = ::WideCharToMultiByte(codePage, 0, s.c_str(), static_cast<int>(s.size()), NULL, 0, NULL, NULL);
 	char *pszMulti = new char[cchMulti + 1];
-	::WideCharToMultiByte(codePage, 0, s.c_str(), s.size(), pszMulti, cchMulti + 1, NULL, NULL);
+	::WideCharToMultiByte(codePage, 0, s.c_str(), static_cast<int>(s.size()), pszMulti, cchMulti + 1, NULL, NULL);
 	pszMulti[cchMulti] = 0;
 	OutputAppendStringSynchronised(pszMulti);
 	delete []pszMulti;
+}
+
+CommandWorker::CommandWorker() : pSciTE(NULL) {
+	Initialise();
+}
+
+void CommandWorker::Initialise() {
+    icmd = 0;
+    originalEnd = 0;
+    exitStatus = 0;
+    flags = 0;
+	seenOutput = false;
+	outputScroll = 1;
+}
+
+void CommandWorker::Execute() {
+	pSciTE->ProcessExecute();
+}
+
+void SciTEWin::ResetExecution() {
+	cmdWorker.Initialise();
+	jobQueue.SetExecuting(false);
+	if (needReadProperties)
+		ReadProperties();
+	CheckReload();
+	CheckMenus();
+	ClearJobQueue();
+	::SendMessage(MainHWND(), WM_COMMAND, IDM_FINISHEDEXECUTE, 0);
+}
+
+void SciTEWin::ExecuteNext() {
+	cmdWorker.icmd++;
+	if (cmdWorker.icmd < jobQueue.commandCurrent && cmdWorker.icmd < jobQueue.commandMax && cmdWorker.exitStatus == 0) {
+		Execute();
+	} else {
+		ResetExecution();
+	}
 }
 
 /**
@@ -686,35 +721,11 @@ void SciTEWin::OutputAppendEncodedStringSynchronised(GUI::gui_string s, int code
  * This is running in a separate thread to the user interface so should always
  * use ScintillaWindow::Send rather than a one of the direct function calls.
  */
-DWORD SciTEWin::ExecuteOne(const Job &jobToRun, bool &seenOutput) {
+DWORD SciTEWin::ExecuteOne(const Job &jobToRun) {
 	DWORD exitcode = 0;
-	GUI::ElapsedTime commandTime;
 
 	if (jobToRun.jobType == jobShell) {
 		ShellExec(jobToRun.command, jobToRun.directory.AsUTF8().c_str());
-		return exitcode;
-	}
-
-	if (jobToRun.jobType == jobExtension) {
-		if (extender) {
-			// Problem: we are in the wrong thread!  That is the cause of the cursed PC.
-			// It could also lead to other problems.
-
-			if (jobToRun.flags & jobGroupUndo)
-				wEditor.Send(SCI_BEGINUNDOACTION);
-
-			extender->OnExecute(jobToRun.command.c_str());
-
-			if (jobToRun.flags & jobGroupUndo)
-				wEditor.Send(SCI_ENDUNDOACTION);
-
-			Redraw();
-			// A Redraw "might" be needed, since Lua and Director
-			// provide enough low-level capabilities to corrupt the
-			// display.
-			// (That might have been due to a race condition, and might now be
-			// corrected by SingleThreadExtension.  Should check it some time.)
-		}
 		return exitcode;
 	}
 
@@ -731,25 +742,29 @@ DWORD SciTEWin::ExecuteOne(const Job &jobToRun, bool &seenOutput) {
 	if (jobToRun.jobType == jobGrep) {
 		// jobToRun.command is "(w|~)(c|~)(d|~)(b|~)\0files\0text"
 		const char *grepCmd = jobToRun.command.c_str();
-		GrepFlags gf = grepNone;
-		if (*grepCmd == 'w')
-			gf = static_cast<GrepFlags>(gf | grepWholeWord);
-		grepCmd++;
-		if (*grepCmd == 'c')
-			gf = static_cast<GrepFlags>(gf | grepMatchCase);
-		grepCmd++;
-		if (*grepCmd == 'd')
-			gf = static_cast<GrepFlags>(gf | grepDot);
-		grepCmd++;
-		if (*grepCmd == 'b')
-			gf = static_cast<GrepFlags>(gf | grepBinary);
-		const char *findFiles = grepCmd + 2;
-		const char *findWhat = findFiles + strlen(findFiles) + 1;
-		InternalGrep(gf, jobToRun.directory.AsInternal(), GUI::StringFromUTF8(findFiles).c_str(), findWhat);
+		if (*grepCmd) {
+			GrepFlags gf = grepNone;
+			if (*grepCmd == 'w')
+				gf = static_cast<GrepFlags>(gf | grepWholeWord);
+			grepCmd++;
+			if (*grepCmd == 'c')
+				gf = static_cast<GrepFlags>(gf | grepMatchCase);
+			grepCmd++;
+			if (*grepCmd == 'd')
+				gf = static_cast<GrepFlags>(gf | grepDot);
+			grepCmd++;
+			if (*grepCmd == 'b')
+				gf = static_cast<GrepFlags>(gf | grepBinary);
+			const char *findFiles = grepCmd + 2;
+			const char *findWhat = findFiles + strlen(findFiles) + 1;
+			if (cmdWorker.outputScroll == 1)
+				gf = static_cast<GrepFlags>(gf | grepScroll);
+			InternalGrep(gf, jobToRun.directory.AsInternal(), GUI::StringFromUTF8(findFiles).c_str(), findWhat);
+		}
 		return exitcode;
 	}
 
-	UINT codePage = wOutput.Send(SCI_GETCODEPAGE);
+	UINT codePage = static_cast<UINT>(wOutput.Send(SCI_GETCODEPAGE));
 	if (codePage != SC_CP_UTF8) {
 		codePage = CodePageFromCharSet(characterSet, codePage);
 	}
@@ -858,9 +873,14 @@ DWORD SciTEWin::ExecuteOne(const Job &jobToRun, bool &seenOutput) {
 
 		unsigned writingPosition = 0;
 
+		int countPeeks = 0;
 		while (running) {
 			if (writingPosition >= totalBytesToWrite) {
-				::Sleep(100L);
+				if (countPeeks > 10)
+					::Sleep(100L);
+				else if (countPeeks > 2)
+					::Sleep(10L);
+				countPeeks++;
 			}
 
 			DWORD bytesRead = 0;
@@ -890,7 +910,7 @@ DWORD SciTEWin::ExecuteOne(const Job &jobToRun, bool &seenOutput) {
 
 				int bTest = ::WriteFile(hWriteSubProcess,
 					    const_cast<char *>(jobToRun.input.c_str() + writingPosition),
-					    bytesToWrite, &bytesWrote, NULL);
+					    static_cast<DWORD>(bytesToWrite), &bytesWrote, NULL);
 
 				if (bTest) {
 					if ((writingPosition + bytesToWrite) / 1024 > writingPosition / 1024) {
@@ -923,9 +943,9 @@ DWORD SciTEWin::ExecuteOne(const Job &jobToRun, bool &seenOutput) {
 					}
 
 					if (!(jobToRun.flags & jobQuiet)) {
-						if (!seenOutput) {
+						if (!cmdWorker.seenOutput) {
 							MakeOutputVisible();
-							seenOutput = true;
+							cmdWorker.seenOutput = true;
 						}
 						// Display the data
 						OutputAppendStringSynchronised(buffer, bytesRead);
@@ -967,7 +987,7 @@ DWORD SciTEWin::ExecuteOne(const Job &jobToRun, bool &seenOutput) {
 		sExitMessage.insert(0, ">Exit code: ");
 		if (jobQueue.TimeCommands()) {
 			sExitMessage += "    Time: ";
-			sExitMessage += SString(commandTime.Duration(), 3);
+			sExitMessage += SString(cmdWorker.commandTime.Duration(), 3);
 		}
 		sExitMessage += "\n";
 		OutputAppendStringSynchronised(sExitMessage.c_str());
@@ -983,8 +1003,8 @@ DWORD SciTEWin::ExecuteOne(const Job &jobToRun, bool &seenOutput) {
 				doRepSel = (0 == exitcode);
 
 			if (doRepSel) {
-				int cpMin = wEditor.Send(SCI_GETSELECTIONSTART, 0, 0);
-				wEditor.Send(SCI_REPLACESEL,0,(sptr_t)(repSelBuf.c_str()));
+				int cpMin = static_cast<int>(wEditor.Send(SCI_GETSELECTIONSTART, 0, 0));
+				wEditor.Send(SCI_REPLACESEL,0,reinterpret_cast<sptr_t>(repSelBuf.c_str()));
 				wEditor.Send(SCI_SETSEL, cpMin, cpMin+repSelBuf.length());
 			}
 		}
@@ -1007,41 +1027,31 @@ DWORD SciTEWin::ExecuteOne(const Job &jobToRun, bool &seenOutput) {
 }
 
 /**
- * Run the commands in the job queue, stopping if one fails.
+ * Run a command in the job queue, stopping if one fails.
  * This is running in a separate thread to the user interface so must be
  * careful when reading and writing shared state.
  */
 void SciTEWin::ProcessExecute() {
-	DWORD exitcode = 0;
 	if (scrollOutput)
 		wOutput.Send(SCI_GOTOPOS, wOutput.Send(SCI_GETTEXTLENGTH));
-	int originalEnd = wOutput.Send(SCI_GETCURRENTPOS);
-	bool seenOutput = false;
 
-	for (int icmd = 0; icmd < jobQueue.commandCurrent && icmd < jobQueue.commandMax && exitcode == 0; icmd++) {
-		exitcode = ExecuteOne(jobQueue.jobQueue[icmd], seenOutput);
-		if (jobQueue.isBuilding) {
-			// The build command is first command in a sequence so it is only built if
-			// that command succeeds not if a second returns after document is modified.
-			jobQueue.isBuilding = false;
-			if (exitcode == 0)
-				jobQueue.isBuilt = true;
-		}
+	cmdWorker.exitStatus = ExecuteOne(jobQueue.jobQueue[cmdWorker.icmd]);
+	if (jobQueue.isBuilding) {
+		// The build command is first command in a sequence so it is only built if
+		// that command succeeds not if a second returns after document is modified.
+		jobQueue.isBuilding = false;
+		if (cmdWorker.exitStatus == 0)
+			jobQueue.isBuilt = true;
 	}
 
 	// Move selection back to beginning of this run so that F4 will go
 	// to first error of this run.
 	// scroll and return only if output.scroll equals
 	// one in the properties file
-	if ((outputScroll == 1) && returnOutputToCommand)
-		wOutput.Send(SCI_GOTOPOS, originalEnd, 0);
+	if ((cmdWorker.outputScroll == 1) && returnOutputToCommand)
+		wOutput.Send(SCI_GOTOPOS, cmdWorker.originalEnd, 0);
 	returnOutputToCommand = true;
-	::SendMessage(MainHWND(), WM_COMMAND, IDM_FINISHEDEXECUTE, 0);
-}
-
-void ExecThread(void *ptw) {
-	SciTEWin *tw = reinterpret_cast<SciTEWin *>(ptw);
-	tw->ProcessExecute();
+	PostOnMainThread(WORK_EXECUTE, &cmdWorker);
 }
 
 void SciTEWin::ShellExec(const SString &cmd, const char *dir) {
@@ -1063,7 +1073,7 @@ void SciTEWin::ShellExec(const SString &cmd, const char *dir) {
 	if (s == NULL)
 		s = strstr(mycmdcopy, ".com");
 	if ((s != NULL) && ((*(s + 4) == '\0') || (*(s + 4) == ' '))) {
-		int len_mycmd = s - mycmdcopy + 4;
+		ptrdiff_t len_mycmd = s - mycmdcopy + 4;
 		delete []mycmdcopy;
 		mycmdcopy = StringDup(cmd.c_str());
 		mycmd = mycmdcopy;
@@ -1135,7 +1145,35 @@ void SciTEWin::ShellExec(const SString &cmd, const char *dir) {
 void SciTEWin::Execute() {
 	SciTEBase::Execute();
 
-	_beginthread(ExecThread, 1024 * 1024, reinterpret_cast<void *>(this));
+	cmdWorker.Initialise();
+	cmdWorker.outputScroll = props.GetInt("output.scroll", 1);
+	cmdWorker.originalEnd = wOutput.Call(SCI_GETTEXTLENGTH);
+	cmdWorker.commandTime.Duration(true);
+	cmdWorker.flags = jobQueue.jobQueue[cmdWorker.icmd].flags;
+	if (scrollOutput)
+		wOutput.Send(SCI_GOTOPOS, wOutput.Send(SCI_GETTEXTLENGTH));
+
+	if (jobQueue.jobQueue[cmdWorker.icmd].jobType == jobExtension) {
+		// Execute extensions synchronously
+		if (jobQueue.jobQueue[cmdWorker.icmd].flags & jobGroupUndo)
+			wEditor.Send(SCI_BEGINUNDOACTION);
+
+		if (extender)
+			extender->OnExecute(jobQueue.jobQueue[cmdWorker.icmd].command.c_str());
+
+		if (jobQueue.jobQueue[cmdWorker.icmd].flags & jobGroupUndo)
+			wEditor.Send(SCI_ENDUNDOACTION);
+
+		Redraw();
+		// A Redraw "might" be needed, since Lua and Director
+		// provide enough low-level capabilities to corrupt the
+		// display.
+
+		ExecuteNext();
+	} else {
+		// Execute other jobs asynchronously on a new thread
+		PerformOnNewThread(&cmdWorker);
+	}
 }
 
 void SciTEWin::StopExecute() {
@@ -1182,6 +1220,31 @@ void SciTEWin::AddCommand(const SString &cmd, const SString &dir, JobSubsystem j
 			ShellExec(pCmd, dir.c_str());
 		} else {
 			SciTEBase::AddCommand(cmd, dir, jobType, input, flags);
+		}
+	}
+}
+
+static void WorkerThread(void *ptr) {
+	Worker *pWorker = static_cast<Worker *>(ptr);
+	pWorker->Execute();
+}
+
+bool SciTEWin::PerformOnNewThread(Worker *pWorker) {
+	uintptr_t result = _beginthread(WorkerThread, 1024 * 1024, reinterpret_cast<void *>(pWorker));
+	return result != static_cast<uintptr_t>(-1);
+}
+
+void SciTEWin::PostOnMainThread(int cmd, Worker *pWorker) {
+	::PostMessage(reinterpret_cast<HWND>(wSciTE.GetID()), SCITE_WORKER, cmd, reinterpret_cast<LPARAM>(pWorker));
+}
+
+void SciTEWin::WorkerCommand(int cmd, Worker *pWorker) {
+	if (cmd < WORK_PLATFORM) {
+		SciTEBase::WorkerCommand(cmd, pWorker);
+	} else {
+		if (cmd == WORK_EXECUTE) {
+			// Move to next command
+			ExecuteNext();
 		}
 	}
 }
@@ -1427,12 +1490,30 @@ void SciTEWin::DropFiles(HDROP hdrop) {
 	// If drag'n'drop inside the SciTE window but outside
 	// Scintilla, hdrop is null, and an exception is generated!
 	if (hdrop) {
+		bool tempFilesSyncLoad = props.GetInt("temp.files.sync.load") != 0;
+		GUI::gui_char tempDir[MAX_PATH];
+		DWORD tempDirLen = ::GetTempPath(MAX_PATH, tempDir);
+		bool isTempFile = false;
 		int filesDropped = ::DragQueryFile(hdrop, 0xffffffff, NULL, 0);
 		// Append paths to dropFilesQueue, to finish drag operation soon
 		for (int i = 0; i < filesDropped; ++i) {
 			GUI::gui_char pathDropped[MAX_PATH];
 			::DragQueryFileW(hdrop, i, pathDropped, ELEMENTS(pathDropped));
-			dropFilesQueue.push_back(pathDropped);
+			// Only do this for the first file in the drop op
+			// as all are coming from the same drag location
+			if (i == 0 && tempFilesSyncLoad) {
+				// check if file's parent dir is temp
+				if (::wcsncmp(tempDir, pathDropped, tempDirLen) == 0) {
+					isTempFile = true;
+				}
+			}
+			if (isTempFile) {
+				if (!Open(pathDropped, ofSynchronous)) {
+					break;
+				}
+			} else {
+				dropFilesQueue.push_back(pathDropped);
+			}
 		}
 		::DragFinish(hdrop);
 		// Put SciTE to forefront
@@ -1445,7 +1526,7 @@ void SciTEWin::DropFiles(HDROP hdrop) {
 		::SetForegroundWindow(MainHWND());
 		// Post message to ourself for opening the files so we can finish the drop message and
 		// the drop source will respond when open operation takes long time (opening big files...)
-		if (filesDropped > 0) {
+		if (!dropFilesQueue.empty()) {
 			::PostMessage(MainHWND(), SCITE_DROP, 0, 0);
 		}
 	}
@@ -1622,11 +1703,11 @@ LRESULT SciTEWin::KeyDown(WPARAM wParam) {
 	    (IsKeyDown(VK_CONTROL) ? SCMOD_CTRL : 0) |
 	    (IsKeyDown(VK_MENU) ? SCMOD_ALT : 0);
 
-	if (extender && extender->OnKey(wParam, modifiers))
+	if (extender && extender->OnKey(static_cast<int>(wParam), modifiers))
 		return 1l;
 
 	for (int j = 0; j < languageItems; j++) {
-		if (KeyMatch(languageMenu[j].menuKey, wParam, modifiers)) {
+		if (KeyMatch(languageMenu[j].menuKey, static_cast<int>(wParam), modifiers)) {
 			SciTEBase::MenuCommand(IDM_LANGUAGE + j);
 			return 1l;
 		}
@@ -1640,7 +1721,7 @@ LRESULT SciTEWin::KeyDown(WPARAM wParam) {
 		mii.cbSize = sizeof(MENUITEMINFO);
 		mii.fMask = MIIM_DATA;
 		if (::GetMenuItemInfo(hToolsMenu, IDM_TOOLS+tool_i, FALSE, &mii) && mii.dwItemData) {
-			if (SciTEKeys::MatchKeyCode(reinterpret_cast<long&>(mii.dwItemData), wParam, modifiers)) {
+			if (SciTEKeys::MatchKeyCode(reinterpret_cast<long&>(mii.dwItemData), static_cast<int>(wParam), modifiers)) {
 				SciTEBase::MenuCommand(IDM_TOOLS+tool_i);
 				return 1l;
 			}
@@ -1650,7 +1731,7 @@ LRESULT SciTEWin::KeyDown(WPARAM wParam) {
 	// loop through the keyboard short cuts defined by user.. if found
 	// exec it the command defined
 	for (int cut_i = 0; cut_i < shortCutItems; cut_i++) {
-		if (KeyMatch(shortCutItemList[cut_i].menuKey, wParam, modifiers)) {
+		if (KeyMatch(shortCutItemList[cut_i].menuKey, static_cast<int>(wParam), modifiers)) {
 			int commandNum = SciTEBase::GetMenuCommandAsInt(shortCutItemList[cut_i].menuCommand);
 			if (commandNum != -1) {
 				// its possible that the command is for scintilla directly
@@ -1771,6 +1852,10 @@ LRESULT SciTEWin::WndProc(UINT iMessage, WPARAM wParam, LPARAM lParam) {
 			}
 			break;
 
+		case SCITE_WORKER:
+			WorkerCommand(static_cast<int>(wParam), reinterpret_cast<Worker *>(lParam));
+			break;
+
 		case WM_NOTIFY:
 			Notify(reinterpret_cast<SCNotification *>(lParam));
 			break;
@@ -1832,19 +1917,6 @@ LRESULT SciTEWin::WndProc(UINT iMessage, WPARAM wParam, LPARAM lParam) {
 			wOutput.Call(WM_SYSCOLORCHANGE, wParam, lParam);
 			break;
 
-		case WM_PALETTECHANGED:
-			if (wParam != reinterpret_cast<WPARAM>(MainHWND())) {
-				wEditor.Call(WM_PALETTECHANGED, wParam, lParam);
-				//wOutput.Call(WM_PALETTECHANGED, wParam, lParam);
-			}
-
-			break;
-
-		case WM_QUERYNEWPALETTE:
-			wEditor.Call(WM_QUERYNEWPALETTE, wParam, lParam);
-			//wOutput.Call(WM_QUERYNEWPALETTE, wParam, lParam);
-			return TRUE;
-
 		case WM_ACTIVATEAPP:
 			wEditor.Call(SCI_HIDESELECTION, !wParam);
 			// Do not want to display dialog yet as may be in middle of system mouse capture
@@ -1875,7 +1947,7 @@ LRESULT SciTEWin::WndProc(UINT iMessage, WPARAM wParam, LPARAM lParam) {
 			return ::DefWindowProcW(MainHWND(), iMessage, wParam, lParam);
 		}
 	} catch (GUI::ScintillaFailure &sf) {
-		statusFailure = sf.status;
+		statusFailure = static_cast<int>(sf.status);
 	}
 	if ((statusFailure > 0) && (boxesVisible == 0)) {
 		boxesVisible++;
@@ -1984,18 +2056,16 @@ LRESULT ContentWin::WndProc(UINT iMessage, WPARAM wParam, LPARAM lParam) {
 		break;
 
 	case WM_SETCURSOR:
-		if (ControlIDOfCommand(lParam) == HTCLIENT) {
+		if (ControlIDOfCommand(static_cast<unsigned long>(lParam)) == HTCLIENT) {
 			GUI::Point ptCursor;
 			::GetCursorPos(reinterpret_cast<POINT *>(&ptCursor));
 			GUI::Point ptClient = ptCursor;
 			::ScreenToClient(pSciTEWin->MainHWND(), reinterpret_cast<POINT *>(&ptClient));
-			if ((ptClient.y > (pSciTEWin->visHeightTools + pSciTEWin->visHeightTab)) && (ptClient.y < pSciTEWin->visHeightTools + pSciTEWin->visHeightTab + pSciTEWin->visHeightEditor)) {
-				GUI::Rectangle rcScintilla = pSciTEWin->wEditor.GetPosition();
-				GUI::Rectangle rcOutput = pSciTEWin->wOutput.GetPosition();
-				if (!rcScintilla.Contains(ptCursor) && !rcOutput.Contains(ptCursor)) {
-					::SetCursor(::LoadCursor(NULL, pSciTEWin->splitVertical ? IDC_SIZEWE : IDC_SIZENS));
-					return TRUE;
-				}
+			GUI::Rectangle rcScintilla = pSciTEWin->wEditor.GetPosition();
+			GUI::Rectangle rcOutput = pSciTEWin->wOutput.GetPosition();
+			if (!rcScintilla.Contains(ptCursor) && !rcOutput.Contains(ptCursor)) {
+				::SetCursor(::LoadCursor(NULL, pSciTEWin->splitVertical ? IDC_SIZEWE : IDC_SIZENS));
+				return TRUE;
 			}
 		}
 		return ::DefWindowProc(Hwnd(), iMessage, wParam, lParam);
@@ -2047,21 +2117,11 @@ static const char *textReplacePrompt = "Rep&lace:";
 static const char *textFindNext = "&Find Next";
 static const char *textMarkAll = "&Mark All";
 
-//~ static const char *textFind = "F&ind";
 static const char *textReplace = "&Replace";
 static const char *textReplaceAll = "Replace &All";
 static const char *textInSelection = "In &Selection";
-//~ static const char *textReplaceInBuffers = "Replace In &Buffers";
-//~ static const char *textClose = "Close";
 
-struct Toggle {
-	enum { tWord, tCase, tRegExp, tBackslash, tWrap, tUp };
-	const char *label;
-	int cmd;
-	int id;
-};
-
-static Toggle toggles[] = {
+static SearchOption toggles[] = {
 	{"Match &whole word only", IDM_WHOLEWORD, IDWHOLEWORD},
 	{"Case sensiti&ve", IDM_MATCHCASE, IDMATCHCASE},
 	{"Regular &expression", IDM_REGEXP, IDREGEXP},
@@ -2334,7 +2394,6 @@ bool Strip::MouseInClose(GUI::Point pt) {
 
 void Strip::TrackMouse(GUI::Point pt) {
 	stripCloseState closeStateStart = closeState;
-	GUI::Rectangle rcStrip = GetClientPosition();
 	if (MouseInClose(pt)) {
 		if (closeState == csNone)
 			closeState = csOver;
@@ -2534,8 +2593,9 @@ LRESULT Strip::WndProc(UINT iMessage, WPARAM wParam, LPARAM lParam) {
 				return CustomDraw(pnmh);
 			} else if (pnmh->code == static_cast<unsigned int>(TTN_GETDISPINFO)) {
 				NMTTDISPINFOW *pnmtdi = (LPNMTTDISPINFO) lParam;
-				int idButton = (pnmtdi->uFlags & TTF_IDISHWND) ?
-					::GetDlgCtrlID(reinterpret_cast<HWND>(pnmtdi->hdr.idFrom)) : pnmtdi->hdr.idFrom;
+				int idButton = static_cast<int>(
+					(pnmtdi->uFlags & TTF_IDISHWND) ?
+					::GetDlgCtrlID(reinterpret_cast<HWND>(pnmtdi->hdr.idFrom)) : pnmtdi->hdr.idFrom);
 				for (size_t i=0; toggles[i].label; i++) {
 					if (toggles[i].id == idButton) {
 						GUI::gui_string localised = localiser->Text(toggles[i].label);
@@ -2656,7 +2716,7 @@ void SearchStrip::Next(bool select) {
 
 	if (select) {
 		if (ffLastWhat.length()) {
-			pSearcher->MoveBack(ffLastWhat.length());
+			pSearcher->MoveBack(static_cast<int>(ffLastWhat.length()));
 		}
 	}
 	pSearcher->wholeWord = false;
@@ -2677,8 +2737,8 @@ void SearchStrip::Next(bool select) {
 bool SearchStrip::Command(WPARAM wParam) {
 	if (entered)
 		return false;
-	int control = ControlIDOfCommand(wParam);
-	int subCommand = wParam >> 16;
+	int control = ControlIDOfWParam(wParam);
+	int subCommand = static_cast<int>(wParam >> 16);
 	if (((control == IDC_INCFINDTEXT) && (subCommand == EN_CHANGE)) ||
 		(control == IDC_INCFINDBTNOK)) {
 		Next(control != IDC_INCFINDBTNOK);
@@ -2722,12 +2782,12 @@ void FindStrip::Creation() {
 	wButton = CreateButton(textFindNext, IDOK);
 	wButtonMarkAll = CreateButton(textMarkAll, IDMARKALL);
 
-	wCheckWord = CreateButton(toggles[Toggle::tWord].label, toggles[Toggle::tWord].id, true);
-	wCheckCase = CreateButton(toggles[Toggle::tCase].label, toggles[Toggle::tCase].id, true);
-	wCheckRE = CreateButton(toggles[Toggle::tRegExp].label, toggles[Toggle::tRegExp].id, true);
-	wCheckBE = CreateButton(toggles[Toggle::tBackslash].label, toggles[Toggle::tBackslash].id, true);
-	wCheckWrap = CreateButton(toggles[Toggle::tWrap].label, toggles[Toggle::tWrap].id, true);
-	wCheckUp = CreateButton(toggles[Toggle::tUp].label, toggles[Toggle::tUp].id, true);
+	wCheckWord = CreateButton(toggles[SearchOption::tWord].label, toggles[SearchOption::tWord].id, true);
+	wCheckCase = CreateButton(toggles[SearchOption::tCase].label, toggles[SearchOption::tCase].id, true);
+	wCheckRE = CreateButton(toggles[SearchOption::tRegExp].label, toggles[SearchOption::tRegExp].id, true);
+	wCheckBE = CreateButton(toggles[SearchOption::tBackslash].label, toggles[SearchOption::tBackslash].id, true);
+	wCheckWrap = CreateButton(toggles[SearchOption::tWrap].label, toggles[SearchOption::tWrap].id, true);
+	wCheckUp = CreateButton(toggles[SearchOption::tUp].label, toggles[SearchOption::tUp].id, true);
 }
 
 void FindStrip::Destruction() {
@@ -2826,19 +2886,19 @@ bool FindStrip::KeyDown(WPARAM key) {
 	switch (key) {
 	case VK_RETURN:
 		if (IsChild(Hwnd(), ::GetFocus())) {
-			Next(false);
+			Next(false, IsKeyDown(VK_SHIFT));
 			return true;
 		}
 	}
 	return false;
 }
 
-void FindStrip::Next(bool markAll) {
+void FindStrip::Next(bool markAll, bool invertDirection) {
 	pSearcher->SetFind(ControlText(wText).c_str());
 	if (markAll){
 		pSearcher->MarkAll();
 	}
-	pSearcher->FindNext(pSearcher->reverseFind);
+	pSearcher->FindNext(pSearcher->reverseFind ^ invertDirection);
 	if (pSearcher->closeFind) {
 		visible = false;
 		pSearcher->UIClosed();
@@ -2857,7 +2917,7 @@ void FindStrip::AddToPopUp(GUI::Menu &popup, const char *label, int cmd, bool ch
 void FindStrip::ShowPopup() {
 	GUI::Menu popup;
 	popup.CreatePopUp();
-	for (int i=Toggle::tWord; i<=Toggle::tUp; i++) {
+	for (int i=SearchOption::tWord; i<=SearchOption::tUp; i++) {
 		AddToPopUp(popup, toggles[i].label, toggles[i].cmd, pSearcher->FlagFromCmd(toggles[i].cmd));
 	}
 	GUI::Rectangle rcButton = wButton.GetPosition();
@@ -2868,9 +2928,9 @@ void FindStrip::ShowPopup() {
 bool FindStrip::Command(WPARAM wParam) {
 	if (entered)
 		return false;
-	int control = ControlIDOfCommand(wParam);
+	int control = ControlIDOfWParam(wParam);
 	if ((control == IDOK) || (control == IDMARKALL)) {
-		Next(control == IDMARKALL);
+		Next(control == IDMARKALL, false);
 		return true;
 	} else {
 		pSearcher->FlagFromCmd(control) = !pSearcher->FlagFromCmd(control);
@@ -2958,13 +3018,13 @@ void ReplaceStrip::Creation() {
 	wButtonReplaceAll = CreateButton(textReplaceAll, IDREPLACEALL);
 	wButtonReplaceInSelection = CreateButton(textInSelection, IDREPLACEINSEL);
 
-	wCheckWord = CreateButton(toggles[Toggle::tWord].label, toggles[Toggle::tWord].id, true);
-	wCheckRE = CreateButton(toggles[Toggle::tRegExp].label, toggles[Toggle::tRegExp].id, true);
+	wCheckWord = CreateButton(toggles[SearchOption::tWord].label, toggles[SearchOption::tWord].id, true);
+	wCheckRE = CreateButton(toggles[SearchOption::tRegExp].label, toggles[SearchOption::tRegExp].id, true);
 
-	wCheckCase = CreateButton(toggles[Toggle::tCase].label, toggles[Toggle::tCase].id, true);
-	wCheckBE = CreateButton(toggles[Toggle::tBackslash].label, toggles[Toggle::tBackslash].id, true);
+	wCheckCase = CreateButton(toggles[SearchOption::tCase].label, toggles[SearchOption::tCase].id, true);
+	wCheckBE = CreateButton(toggles[SearchOption::tBackslash].label, toggles[SearchOption::tBackslash].id, true);
 
-	wCheckWrap = CreateButton(toggles[Toggle::tWrap].label, toggles[Toggle::tWrap].id, true);
+	wCheckWrap = CreateButton(toggles[SearchOption::tWrap].label, toggles[SearchOption::tWrap].id, true);
 }
 
 void ReplaceStrip::Destruction() {
@@ -3101,9 +3161,9 @@ bool ReplaceStrip::KeyDown(WPARAM key) {
 	case VK_RETURN:
 		if (IsChild(Hwnd(), ::GetFocus())) {
 			if (IsSameOrChild(wButtonFind, ::GetFocus()))
-				HandleReplaceCommand(IDOK);
+				HandleReplaceCommand(IDOK, IsKeyDown(VK_SHIFT));
 			else if (IsSameOrChild(wReplace, ::GetFocus()))
-				HandleReplaceCommand(IDOK);
+				HandleReplaceCommand(IDOK, IsKeyDown(VK_SHIFT));
 			else if (IsSameOrChild(wButtonReplace, ::GetFocus()))
 				HandleReplaceCommand(IDREPLACE);
 			else if (IsSameOrChild(wButtonReplaceAll, ::GetFocus()))
@@ -3111,7 +3171,7 @@ bool ReplaceStrip::KeyDown(WPARAM key) {
 			else if (IsSameOrChild(wButtonReplaceInSelection, ::GetFocus()))
 				HandleReplaceCommand(IDREPLACEINSEL);
 			else
-				HandleReplaceCommand(IDOK);
+				HandleReplaceCommand(IDOK, IsKeyDown(VK_SHIFT));
 			return true;
 		}
 	}
@@ -3130,7 +3190,7 @@ void ReplaceStrip::AddToPopUp(GUI::Menu &popup, const char *label, int cmd, bool
 void ReplaceStrip::ShowPopup() {
 	GUI::Menu popup;
 	popup.CreatePopUp();
-	for (int i=Toggle::tWord; i<=Toggle::tWrap; i++) {
+	for (int i=SearchOption::tWord; i<=SearchOption::tWrap; i++) {
 		AddToPopUp(popup, toggles[i].label, toggles[i].cmd, pSearcher->FlagFromCmd(toggles[i].cmd));
 	}
 	GUI::Rectangle rcButton = wCheckWord.GetPosition();
@@ -3138,7 +3198,7 @@ void ReplaceStrip::ShowPopup() {
 	popup.Show(pt, *this);
 }
 
-void ReplaceStrip::HandleReplaceCommand(int cmd) {
+void ReplaceStrip::HandleReplaceCommand(int cmd, bool reverseFind) {
 	pSearcher->SetFind(ControlText(wText).c_str());
 	if (cmd != IDOK) {
 		pSearcher->SetReplace(ControlText(wReplace).c_str());
@@ -3146,7 +3206,7 @@ void ReplaceStrip::HandleReplaceCommand(int cmd) {
 	//int replacements = 0;
 	if (cmd == IDOK) {
 		if (pSearcher->FindHasText()) {
-			pSearcher->FindNext(false);
+			pSearcher->FindNext(reverseFind);
 		}
 	} else if (cmd == IDREPLACE) {
 		pSearcher->ReplaceOnce();
@@ -3161,7 +3221,7 @@ void ReplaceStrip::HandleReplaceCommand(int cmd) {
 bool ReplaceStrip::Command(WPARAM wParam) {
 	if (entered)
 		return false;
-	int control = ControlIDOfCommand(wParam);
+	int control = ControlIDOfWParam(wParam);
 	switch (control) {
 
 	case IDFINDWHAT:
@@ -3278,9 +3338,9 @@ SString SciTEWin::EncodeString(const SString &s) {
 	if (codePage != SC_CP_UTF8) {
 		codePage = CodePageFromCharSet(characterSet, codePage);
 
-		int cchWide = ::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), s.length(), NULL, 0);
+		int cchWide = ::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), static_cast<int>(s.length()), NULL, 0);
 		wchar_t *pszWide = new wchar_t[cchWide + 1];
-		::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), s.length(), pszWide, cchWide + 1);
+		::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), static_cast<int>(s.length()), pszWide, cchWide + 1);
 
 		int cchMulti = ::WideCharToMultiByte(codePage, 0, pszWide, cchWide, NULL, 0, NULL, NULL);
 		char *pszMulti = new char[cchMulti + 1];
@@ -3307,9 +3367,9 @@ SString SciTEWin::GetRangeInUIEncoding(GUI::ScintillaWindow &win, int selStart, 
 	if (codePage != SC_CP_UTF8) {
 		codePage = CodePageFromCharSet(characterSet, codePage);
 
-		int cchWide = ::MultiByteToWideChar(codePage, 0, s.c_str(), s.length(), NULL, 0);
+		int cchWide = ::MultiByteToWideChar(codePage, 0, s.c_str(), static_cast<int>(s.length()), NULL, 0);
 		wchar_t *pszWide = new wchar_t[cchWide + 1];
-		::MultiByteToWideChar(codePage, 0, s.c_str(), s.length(), pszWide, cchWide + 1);
+		::MultiByteToWideChar(codePage, 0, s.c_str(), static_cast<int>(s.length()), pszWide, cchWide + 1);
 
 		int cchMulti = ::WideCharToMultiByte(CP_UTF8, 0, pszWide, cchWide, NULL, 0, NULL, NULL);
 		char *pszMulti = new char[cchMulti + 1];
@@ -3326,7 +3386,7 @@ SString SciTEWin::GetRangeInUIEncoding(GUI::ScintillaWindow &win, int selStart, 
 	return s;
 }
 
-int SciTEWin::EventLoop() {
+uptr_t SciTEWin::EventLoop() {
 	MSG msg;
 	msg.wParam = 0;
 	bool going = true;
@@ -3362,8 +3422,7 @@ int PASCAL WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	Extension *extender = &multiExtender;
 
 #ifndef NO_LUA
-	SingleThreadExtension luaAdapter(LuaExtension::Instance());
-	multiExtender.RegisterExtension(luaAdapter);
+	multiExtender.RegisterExtension(LuaExtension::Instance());
 #endif
 
 #ifndef NO_FILER
@@ -3384,7 +3443,7 @@ int PASCAL WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			TEXT("Error loading Scintilla"), MB_OK | MB_ICONERROR);
 #endif
 
-	int result;
+	uptr_t result;
 	{
 		SciTEWin MainWind(extender);
 		LPTSTR lptszCmdLine = GetCommandLine();
@@ -3411,5 +3470,5 @@ int PASCAL WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	::FreeLibrary(hmod);
 #endif
 
-	return result;
+	return static_cast<int>(result);
 }

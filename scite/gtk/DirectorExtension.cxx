@@ -45,11 +45,13 @@
 
 #include <string>
 #include <vector>
+#include <set>
 #include <map>
 
 #include <gtk/gtk.h>
 
 #include "Scintilla.h"
+#include "ILexer.h"
 
 #include "GUI.h"
 #include "SString.h"
@@ -86,7 +88,7 @@ IF_DEBUG(static FILE *fdDebug = 0)
 // that aren't _directly_ specified by the director.
 struct PipeEntry {
 	int fd;
-	char* name;
+	char *name;
 };
 static PipeEntry s_send_pipes[MAX_PIPES];
 static int s_send_cnt = 0;
@@ -95,7 +97,7 @@ static bool SendPipeAvailable() {
 	return s_send_cnt < MAX_PIPES-1;
 }
 
-static void AddSendPipe(int fd, const char* name) {
+static void AddSendPipe(int fd, const char *name) {
 	PipeEntry entry;
 	entry.fd = fd;
 	if (name)
@@ -107,8 +109,7 @@ static void AddSendPipe(int fd, const char* name) {
 	}
 }
 
-static void RemoveSendPipes()
-{
+static void RemoveSendPipes() {
 	for (int i = 0; i < s_send_cnt; ++i) {
 		PipeEntry entry = s_send_pipes[i];
 		close(entry.fd);
@@ -117,13 +118,13 @@ static void RemoveSendPipes()
 	}
 }
 
-static bool MakePipe(const char* pipeName) {
+static bool MakePipe(const char *pipeName) {
 	int res;
 	res = mkfifo(pipeName, 0777);
 	return res == 0;
 }
 
-static int OpenPipe(const char* pipeName) {
+static int OpenPipe(const char *pipeName) {
 	int fd = open(pipeName, O_RDWR | O_NONBLOCK);
 	return fd;
 }
@@ -135,32 +136,41 @@ static bool SendPipeCommand(const char *pipeCommand) {
 		size = write(fdCorrespondent,pipeCommand,strlen(pipeCommand));
 		size += write(fdCorrespondent,"\n",1);
 		IF_DEBUG(fprintf(fdDebug, "Send correspondent: %s %d bytes to %d\n", pipeCommand, size,fdCorrespondent))
-	} else
-	for (int i = 0; i < s_send_cnt; ++i) {
-		int fd = s_send_pipes[i].fd;
-		// put a linefeed after the notification!
-		size = write(fd, pipeCommand, strlen(pipeCommand));
-		size += write(fd,"\n",1);
-		IF_DEBUG(fprintf(fdDebug, "Send pipecommand: %s %d bytes to %d\n", pipeCommand, size,fd))
+	} else {
+		for (int i = 0; i < s_send_cnt; ++i) {
+			int fd = s_send_pipes[i].fd;
+			// put a linefeed after the notification!
+			size = write(fd, pipeCommand, strlen(pipeCommand));
+			size += write(fd,"\n",1);
+			IF_DEBUG(fprintf(fdDebug, "Send pipecommand: %s %d bytes to %d\n", pipeCommand, size,fd))
+		}
 	}
 	(void)size; // to keep compiler happy if we aren't debugging...
 	return true;
 }
 
-static void ReceiverPipeSignal(void *data, gint fd, GdkInputCondition condition){
+static gboolean ReceiverPipeSignal(GIOChannel *source, GIOCondition condition, void *data) {
+	gdk_threads_enter();
 	char pipeData[8192];
 	PropSetFile pipeProps;
 	DirectorExtension *ext = reinterpret_cast<DirectorExtension *>(data);
 
-	if (condition == GDK_INPUT_READ) {
+	if ((condition & G_IO_IN) == G_IO_IN) {
 		SString pipeString;
-		int readLength;
-		while ((readLength = read(fd, pipeData, sizeof(pipeData) - 1)) > 0) {
+		gsize readLength;
+		GError *error = NULL;
+		GIOStatus status = g_io_channel_read_chars(source, pipeData,
+		        sizeof(pipeData) - 1, &readLength, &error);
+		while ((status != G_IO_STATUS_ERROR) && (readLength > 0)) {
 			pipeData[readLength] = '\0';
 			pipeString.append(pipeData);
+			status = g_io_channel_read_chars(source, pipeData,
+			        sizeof(pipeData) - 1, &readLength, &error);
 		}
 		ext->HandleStringMessage(pipeString.c_str());
 	}
+	gdk_threads_leave();
+	return TRUE;
 }
 
 static void SendDirector(const char *verb, const char *arg = 0) {
@@ -173,13 +183,12 @@ static void SendDirector(const char *verb, const char *arg = 0) {
 			addressedMessage += arg;
 		//send the message through all the registered pipes
 		::SendPipeCommand(addressedMessage.c_str());
-	}
-	else{
+	} else {
 		IF_DEBUG(fprintf(fdDebug, "SendDirector: no notify pipes\n"))
 	}
 }
 
-static bool not_empty(const char* s) {
+static bool not_empty(const char *s) {
 	return s && *s;
 }
 
@@ -231,6 +240,12 @@ bool DirectorExtension::Finalise() {
 	}
 	IF_DEBUG(fprintf(fdDebug,"finished\n"))
 	IF_DEBUG(fclose(fdDebug))
+
+	g_source_remove(inputWatcher);
+	inputWatcher = 0;
+	g_io_channel_unref(inputChannel);
+	inputChannel = 0;
+
 	return true;
 }
 
@@ -413,11 +428,11 @@ void DirectorExtension::CreatePipe(bool) {
 
 	fdReceiver = -1;
 	inputWatcher = -1;
+	inputChannel = 0;
 	requestPipeName[0] = '\0';
 
 	// check we have been given a specific pipe name
-	if (not_empty(pipeName))
-	{
+	if (not_empty(pipeName)) {
 		IF_DEBUG(fprintf(fdDebug, "CreatePipe: if (not_empty(pipeName)): '%s'\n", pipeName))
 		fdReceiver = OpenPipe(pipeName);
 		// there isn't a pipe - so create one
@@ -439,21 +454,16 @@ void DirectorExtension::CreatePipe(bool) {
 			// we'll just try creating a new one
 			perror("CreatePipe: opening ipc.scite.name failed");
 			tryStandardPipeCreation = true;
-		}
-		else
-		{
+		} else {
 			// cool - we can open it
 			tryStandardPipeCreation = false;
 		}
-	}
-	else
-	{
+	} else {
 		tryStandardPipeCreation = true;
 	}
 
 	// We were not given a name or we could'nt open it
-	if( tryStandardPipeCreation )
-	{
+	if (tryStandardPipeCreation) {
 		sprintf(requestPipeName,"%s/SciTE.%d.in", g_get_tmp_dir(), getpid());
 		IF_DEBUG(fprintf(fdDebug, "Creating pipe %s\n", requestPipeName))
 		MakePipe(requestPipeName);
@@ -462,8 +472,10 @@ void DirectorExtension::CreatePipe(bool) {
 
 	// If we were able to open a pipe, listen to it
 	if (fdReceiver != -1) {
-		// store the inputwatcher so we can remove it.
-		inputWatcher = gdk_input_add(fdReceiver, GDK_INPUT_READ, ReceiverPipeSignal, this);
+		// store the inputWatcher so we can remove it.
+		inputChannel = g_io_channel_unix_new(fdReceiver);
+		inputWatcher = g_io_add_watch(inputChannel, G_IO_IN, (GIOFunc)ReceiverPipeSignal, this);
+		//inputWatcher = gdk_input_add(fdReceiver, GDK_INPUT_READ, ReceiverPipeSignal, this);
 		// if we were not supplied with an explicit ipc.scite.name, then set this
 		// property to be the constructed pipe name.
 		if (! not_empty(pipeName)) {

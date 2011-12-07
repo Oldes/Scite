@@ -17,6 +17,12 @@
 
 #include "GUI.h"
 
+#if GTK_CHECK_VERSION(2,20,0)
+#define IS_WIDGET_FOCUSSED(w) (gtk_widget_has_focus(GTK_WIDGET(w)))
+#else
+#define IS_WIDGET_FOCUSSED(w) (GTK_WIDGET_HAS_FOCUS(w))
+#endif
+
 namespace GUI {
 
 gui_string StringFromUTF8(const char *s) {
@@ -47,18 +53,24 @@ void Window::Destroy() {
 }
 
 bool Window::HasFocus() {
-	return GTK_WIDGET_HAS_FOCUS(wid);
+	return IS_WIDGET_FOCUSSED(wid);
 }
 
 Rectangle Window::GetPosition() {
 	// Before any size allocated pretend its 1000 wide so not scrolled
 	Rectangle rc(0, 0, 1000, 1000);
 	if (wid) {
-		rc.left = PWidget(wid)->allocation.x;
-		rc.top = PWidget(wid)->allocation.y;
-		if (PWidget(wid)->allocation.width > 20) {
-			rc.right = rc.left + PWidget(wid)->allocation.width;
-			rc.bottom = rc.top + PWidget(wid)->allocation.height;
+		GtkAllocation allocation;
+#if GTK_CHECK_VERSION(3,0,0)
+		gtk_widget_get_allocation(PWidget(wid), &allocation);
+#else
+		allocation = PWidget(wid)->allocation;
+#endif
+		rc.left = allocation.x;
+		rc.top = allocation.y;
+		if (allocation.width > 20) {
+			rc.right = rc.left + allocation.width;
+			rc.bottom = rc.top + allocation.height;
 		}
 	}
 	return rc;
@@ -101,7 +113,7 @@ void Menu::CreatePopUp() {
 #else
 	g_object_ref(G_OBJECT(mid));
 	gtk_object_sink(GTK_OBJECT(G_OBJECT(mid)));
-#endif 
+#endif
 }
 
 void Menu::Destroy() {
@@ -122,14 +134,18 @@ void Menu::Show(Point pt, Window &) {
 	GtkMenu *widget = reinterpret_cast<GtkMenu *>(mid);
 	gtk_widget_show_all(GTK_WIDGET(widget));
 	GtkRequisition requisition;
+#if GTK_CHECK_VERSION(3,0,0)
+	gtk_widget_get_preferred_size(GTK_WIDGET(widget), NULL, &requisition);
+#else
 	gtk_widget_size_request(GTK_WIDGET(widget), &requisition);
+#endif
 	if ((pt.x + requisition.width) > screenWidth) {
 		pt.x = screenWidth - requisition.width;
 	}
 	if ((pt.y + requisition.height) > screenHeight) {
 		pt.y = screenHeight - requisition.height;
 	}
-	gtk_menu_popup(widget, NULL, NULL, MenuPositionFunc, 
+	gtk_menu_popup(widget, NULL, NULL, MenuPositionFunc,
 		reinterpret_cast<void *>((pt.y << 16) | pt.x), 0,
 		gtk_get_current_event_time());
 }

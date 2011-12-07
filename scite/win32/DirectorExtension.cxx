@@ -9,12 +9,9 @@
 #include <stdio.h>
 #include <time.h>
 
-#ifdef _MSC_VER
-#pragma warning(disable: 4786)
-#endif
-
 #include <string>
 #include <vector>
+#include <set>
 #include <map>
 
 #undef _WIN32_WINNT
@@ -31,6 +28,7 @@
 #include <commctrl.h>
 
 #include "Scintilla.h"
+#include "ILexer.h"
 
 #include "GUI.h"
 #include "SString.h"

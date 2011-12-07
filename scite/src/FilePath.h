@@ -35,7 +35,7 @@ extern const GUI::gui_char fileWrite[];
 
 class FilePath;
 
-class FilePathSet;
+typedef std::vector<FilePath> FilePathSet;
 
 class FilePath {
 	GUI::gui_string fileName;
@@ -50,6 +50,8 @@ public:
 	void Init();
 	bool SameNameAs(const GUI::gui_char *other) const;
 	bool SameNameAs(const FilePath &other) const;
+	bool operator==(const FilePath &other) const;
+	bool operator<(const FilePath &other) const;
 	bool IsSet() const;
 	bool IsUntitled() const;
 	bool IsAbsolute() const;
@@ -71,23 +73,10 @@ public:
 	FILE *Open(const GUI::gui_char *mode) const;
 	void Remove() const;
 	time_t ModifiedTime() const;
-	int GetFileLength() const;
+	long GetFileLength() const;
 	bool Exists() const;
 	bool IsDirectory() const;
 	bool Matches(const GUI::gui_char *pattern) const;
 };
 
-class FilePathSet {
-	size_t size;
-	size_t lengthBody;
-	FilePath *body;
-	// Private so won't be called.
-	FilePathSet &operator=(const FilePathSet &);
-public:
-	FilePathSet(int size_ = 10);
-	FilePathSet(const FilePathSet &other);
-	~FilePathSet();
-	FilePath At(size_t pos) const;
-	void Append(FilePath fp);
-	size_t Length() const;
-};
+std::string CommandExecute(const GUI::gui_char *command, const GUI::gui_char *directoryForRun);

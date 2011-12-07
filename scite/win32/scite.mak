@@ -54,6 +54,7 @@ INCLUDEDIRS=-I../../scintilla/include -I../../scintilla/win32 -I../src
 
 OBJS=\
 	SciTEBase.obj \
+	Credits.obj \
 	FilePath.obj \
 	SciTEBuffers.obj \
 	SciTEIO.obj \
@@ -78,6 +79,7 @@ LEXLIB=..\..\scintilla\win32\Lexers.lib
 
 OBJSSTATIC=\
 	SciTEBase.obj \
+	Credits.obj \
 	FilePath.obj \
 	SciTEBuffers.obj \
 	SciTEIO.obj \
@@ -145,10 +147,11 @@ $(DIR_BIN)\css.properties $(DIR_BIN)\d.properties $(DIR_BIN)\eiffel.properties \
 $(DIR_BIN)\erlang.properties $(DIR_BIN)\escript.properties \
 $(DIR_BIN)\flagship.properties $(DIR_BIN)\forth.properties \
 $(DIR_BIN)\fortran.properties $(DIR_BIN)\freebasic.properties \
-$(DIR_BIN)\gap.properties $(DIR_BIN)\html.properties \
-$(DIR_BIN)\inno.properties $(DIR_BIN)\kix.properties \
-$(DIR_BIN)\latex.properties $(DIR_BIN)\lisp.properties \
-$(DIR_BIN)\lot.properties $(DIR_BIN)\lout.properties $(DIR_BIN)\lua.properties \
+$(DIR_BIN)\gap.properties $(DIR_BIN)\haskell.properties \
+$(DIR_BIN)\html.properties $(DIR_BIN)\inno.properties \
+$(DIR_BIN)\kix.properties $(DIR_BIN)\latex.properties \
+$(DIR_BIN)\lisp.properties $(DIR_BIN)\lot.properties \
+$(DIR_BIN)\lout.properties $(DIR_BIN)\lua.properties \
 $(DIR_BIN)\matlab.properties $(DIR_BIN)\metapost.properties \
 $(DIR_BIN)\mmixal.properties $(DIR_BIN)\modula3.properties \
 $(DIR_BIN)\nimrod.properties $(DIR_BIN)\nncrontab.properties \
@@ -178,7 +181,7 @@ LUA_CORE_OBJS = lapi.obj lcode.obj ldebug.obj ldo.obj ldump.obj lfunc.obj lgc.ob
 LUA_LIB_OBJS =	lauxlib.obj lbaselib.obj ldblib.obj liolib.obj lmathlib.obj ltablib.obj \
                 lstrlib.obj loadlib.obj loslib.obj linit.obj
 
-LUA_OBJS = LuaExtension.obj SingleThreadExtension.obj $(LUA_CORE_OBJS) $(LUA_LIB_OBJS)
+LUA_OBJS = LuaExtension.obj $(LUA_CORE_OBJS) $(LUA_LIB_OBJS)
 
 OBJS = $(OBJS) $(LUA_OBJS)
 OBJSSTATIC = $(OBJSSTATIC) $(LUA_OBJS)
@@ -290,7 +293,6 @@ SciTEWin.obj: \
 	../src/MultiplexExtension.h \
 	../src/Extender.h \
 	DirectorExtension.h \
-	SingleThreadExtension.h \
 	../src/LuaExtension.h
 Sc1.obj: \
 	SciTEWin.cxx \
@@ -313,7 +315,6 @@ Sc1.obj: \
 	../src/MultiplexExtension.h \
 	../src/Extender.h \
 	DirectorExtension.h \
-	SingleThreadExtension.h \
 	../src/LuaExtension.h
 SciTEWinBar.obj: \
 	SciTEWinBar.cxx \
@@ -351,12 +352,6 @@ SciTEWinDlg.obj: \
 	../src/SciTEBase.h \
 	../src/SciTEKeys.h \
 	UniqueInstance.h
-SingleThreadExtension.obj: \
-	SingleThreadExtension.cxx \
-	../../scintilla/include/Scintilla.h \
-	../src/GUI.h \
-	SingleThreadExtension.h \
-	../src/Extender.h
 UniqueInstance.obj: \
 	UniqueInstance.cxx \
 	../../scintilla/include/Scintilla.h \
@@ -424,6 +419,21 @@ SciTEBase.obj: \
 	../src/SciTEBase.cxx \
 	../../scintilla/include/Scintilla.h \
 	../../scintilla/include/SciLexer.h \
+	../src/GUI.h \
+	../src/SString.h \
+	../src/StringHelpers.h \
+	../src/StringList.h \
+	../src/FilePath.h \
+	../src/PropSetFile.h \
+	../src/StyleWriter.h \
+	../src/Extender.h \
+	../src/SciTE.h \
+	../src/Mutex.h \
+	../src/JobQueue.h \
+	../src/SciTEBase.h
+Credits.obj: \
+	../src/Credits.cxx \
+	../../scintilla/include/Scintilla.h \
 	../src/GUI.h \
 	../src/SString.h \
 	../src/StringHelpers.h \
