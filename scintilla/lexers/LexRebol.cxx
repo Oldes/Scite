@@ -50,6 +50,8 @@ static inline bool IsAnOperator(const int ch, const int ch2, const int ch3) {
 			   (ch == '/' && ch2 == '/') ||
 			   (ch == '<' && (ch2 == '=' || ch2 == '>')) ||
 			   (ch == '>' && ch2 == '=') ||
+			   (ch == '>' && ch2 == '>') || //used in RED
+			   (ch == '<' && ch2 == '<') || //used in RED
 			   (ch == '=' && (ch2 == '=' || ch2 == '?')) ||
 			   (ch == '?' && ch2 == '?');
 	}
