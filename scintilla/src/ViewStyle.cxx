@@ -6,6 +6,7 @@
 // The License.txt file describes the conditions under which this software may be distributed.
 
 #include <string.h>
+#include <assert.h>
 
 #include <vector>
 #include <map>
@@ -98,8 +99,6 @@ void FontRealised::Realise(Surface &surface, int zoomLevel, int technology) {
 
 	ascent = surface.Ascent(font);
 	descent = surface.Descent(font);
-	externalLeading = surface.ExternalLeading(font);
-	lineHeight = surface.Height(font);
 	aveCharWidth = surface.AverageCharWidth(font);
 	spaceWidth = surface.WidthChar(font, ' ');
 	if (frNext) {
@@ -142,9 +141,11 @@ ViewStyle::ViewStyle(const ViewStyle &source) {
 		// Can't just copy fontname as its lifetime is relative to its owning ViewStyle
 		styles[sty].fontName = fontNames.Save(source.styles[sty].fontName);
 	}
+	nextExtendedStyle = source.nextExtendedStyle;
 	for (int mrk=0; mrk<=MARKER_MAX; mrk++) {
 		markers[mrk] = source.markers[mrk];
 	}
+	CalcLargestMarkerHeight();
 	for (int ind=0; ind<=INDIC_MAX; ind++) {
 		indicators[ind] = source.indicators[ind];
 	}
@@ -181,6 +182,7 @@ ViewStyle::ViewStyle(const ViewStyle &source) {
 	caretcolour = source.caretcolour;
 	additionalCaretColour = source.additionalCaretColour;
 	showCaretLineBackground = source.showCaretLineBackground;
+	alwaysShowCaretLineBackground = source.alwaysShowCaretLineBackground;
 	caretLineBackground = source.caretLineBackground;
 	caretLineAlpha = source.caretLineAlpha;
 	edgecolour = source.edgecolour;
@@ -191,10 +193,9 @@ ViewStyle::ViewStyle(const ViewStyle &source) {
 	someStylesForceCase = false;
 	leftMarginWidth = source.leftMarginWidth;
 	rightMarginWidth = source.rightMarginWidth;
-	for (int i=0; i < margins; i++) {
-		ms[i] = source.ms[i];
+	for (int margin=0; margin <= SC_MAX_MARGIN; margin++) {
+		ms[margin] = source.ms[margin];
 	}
-	symbolMargin = source.symbolMargin;
 	maskInLine = source.maskInLine;
 	fixedColumnWidth = source.fixedColumnWidth;
 	zoomLevel = source.zoomLevel;
@@ -202,7 +203,6 @@ ViewStyle::ViewStyle(const ViewStyle &source) {
 	whitespaceSize = source.whitespaceSize;
 	viewIndentationGuides = source.viewIndentationGuides;
 	viewEOL = source.viewEOL;
-	showMarkedLines = source.showMarkedLines;
 	extraFontFlag = source.extraFontFlag;
 	extraAscent = source.extraAscent;
 	extraDescent = source.extraDescent;
@@ -227,8 +227,12 @@ void ViewStyle::Init(size_t stylesSize_) {
 	stylesSize = 0;
 	styles = NULL;
 	AllocStyles(stylesSize_);
+	nextExtendedStyle = 256;
 	fontNames.Clear();
 	ResetDefaultStyle();
+
+	// There are no image markers by default, so no need for calling CalcLargestMarkerHeight()
+	largestMarkerHeight = 0;
 
 	indicators[0].style = INDIC_SQUIGGLE;
 	indicators[0].under = false;
@@ -274,6 +278,7 @@ void ViewStyle::Init(size_t stylesSize_) {
 	caretcolour = ColourDesired(0, 0, 0);
 	additionalCaretColour = ColourDesired(0x7f, 0x7f, 0x7f);
 	showCaretLineBackground = false;
+	alwaysShowCaretLineBackground = false;
 	caretLineBackground = ColourDesired(0xff, 0xff, 0);
 	caretLineAlpha = SC_ALPHA_NOALPHA;
 	edgecolour = ColourDesired(0xc0, 0xc0, 0xc0);
@@ -302,11 +307,9 @@ void ViewStyle::Init(size_t stylesSize_) {
 	ms[2].width = 0;
 	ms[2].mask = 0;
 	fixedColumnWidth = leftMarginWidth;
-	symbolMargin = false;
 	maskInLine = 0xffffffff;
-	for (int margin=0; margin < margins; margin++) {
+	for (int margin=0; margin <= SC_MAX_MARGIN; margin++) {
 		fixedColumnWidth += ms[margin].width;
-		symbolMargin = symbolMargin || (ms[margin].style != SC_MARGIN_NUMBER);
 		if (ms[margin].width > 0)
 			maskInLine &= ~ms[margin].mask;
 	}
@@ -315,7 +318,6 @@ void ViewStyle::Init(size_t stylesSize_) {
 	whitespaceSize = 1;
 	viewIndentationGuides = ivNone;
 	viewEOL = false;
-	showMarkedLines = true;
 	extraFontFlag = 0;
 	extraAscent = 0;
 	extraDescent = 0;
@@ -357,6 +359,7 @@ void ViewStyle::Refresh(Surface &surface) {
 		CreateFont(styles[j]);
 	}
 
+	assert(frFirst);
 	frFirst->Realise(surface, zoomLevel, technology);
 
 	for (unsigned int k=0; k<stylesSize; k++) {
@@ -385,11 +388,9 @@ void ViewStyle::Refresh(Surface &surface) {
 	spaceWidth = styles[STYLE_DEFAULT].spaceWidth;
 
 	fixedColumnWidth = leftMarginWidth;
-	symbolMargin = false;
 	maskInLine = 0xffffffff;
-	for (int margin=0; margin < margins; margin++) {
+	for (int margin=0; margin <= SC_MAX_MARGIN; margin++) {
 		fixedColumnWidth += ms[margin].width;
-		symbolMargin = symbolMargin || (ms[margin].style != SC_MARGIN_NUMBER);
 		if (ms[margin].width > 0)
 			maskInLine &= ~ms[margin].mask;
 	}
@@ -412,6 +413,16 @@ void ViewStyle::AllocStyles(size_t sizeNew) {
 	delete []styles;
 	styles = stylesNew;
 	stylesSize = sizeNew;
+}
+
+void ViewStyle::ReleaseAllExtendedStyles() {
+	nextExtendedStyle = 256;
+}
+
+int ViewStyle::AllocateExtendedStyles(int numberStyles) {
+	int startRange = static_cast<int>(nextExtendedStyle);
+	nextExtendedStyle += numberStyles;
+	return startRange;
 }
 
 void ViewStyle::EnsureStyle(size_t index) {
@@ -457,3 +468,18 @@ bool ViewStyle::ValidStyle(size_t styleIndex) const {
 	return styleIndex < stylesSize;
 }
 
+void ViewStyle::CalcLargestMarkerHeight() {
+	largestMarkerHeight = 0;
+	for (int m = 0; m <= MARKER_MAX; ++m) {
+		switch (markers[m].markType) {
+		case SC_MARK_PIXMAP:
+			if (markers[m].pxpm->GetHeight() > largestMarkerHeight)
+				largestMarkerHeight = markers[m].pxpm->GetHeight();
+			break;
+		case SC_MARK_RGBAIMAGE:
+			if (markers[m].image->GetHeight() > largestMarkerHeight)
+				largestMarkerHeight = markers[m].image->GetHeight();
+			break;
+		}
+	}
+}

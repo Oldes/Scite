@@ -51,7 +51,7 @@ public:
 	// Wrapped line support
 	int widthLine;
 	int lines;
-	int wrapIndent; // In pixels
+	XYPOSITION wrapIndent; // In pixels
 
 	LineLayout(int maxLineLength_);
 	virtual ~LineLayout();
@@ -65,7 +65,7 @@ public:
 	void SetBracesHighlight(Range rangeLine, Position braces[],
 		char bracesMatchStyle, int xHighlight, bool ignoreStyle);
 	void RestoreBracesHighlight(Range rangeLine, Position braces[], bool ignoreStyle);
-	int FindBefore(int x, int lower, int upper) const;
+	int FindBefore(XYPOSITION x, int lower, int upper) const;
 	int EndLineStyle() const;
 };
 
@@ -130,6 +130,8 @@ class BreakFinder {
 	int subBreak;
 	Document *pdoc;
 	void Insert(int val);
+	// Private so BreakFinder objects can not be copied
+	BreakFinder(const BreakFinder &);
 public:
 	// If a whole run is longer than lengthStartSubdivision then subdivide
 	// into smaller runs at spaces or punctuation.
@@ -148,6 +150,8 @@ class PositionCache {
 	size_t size;
 	unsigned int clock;
 	bool allClear;
+	// Private so PositionCache objects can not be copied
+	PositionCache(const PositionCache &);
 public:
 	PositionCache();
 	~PositionCache();
