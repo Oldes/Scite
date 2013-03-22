@@ -303,6 +303,29 @@ void SciTEWin::ActivateWindow(const char *) {
 	// This does nothing as, on Windows, you can no longer activate yourself
 }
 
+enum { tickerID = 100 };
+
+void SciTEWin::TimerStart(int mask) {
+	int maskNew = timerMask | mask;
+	if (timerMask != maskNew) {
+		if (timerMask == 0) {
+			// Create a 1 second ticker
+			::SetTimer(reinterpret_cast<HWND>(wSciTE.GetID()), tickerID, 1000, NULL);
+		}
+		timerMask = maskNew;
+	}
+}
+
+void SciTEWin::TimerEnd(int mask) {
+	int maskNew = timerMask & ~mask;
+	if (timerMask != maskNew) {
+		if (maskNew == 0) {
+			::KillTimer(reinterpret_cast<HWND>(wSciTE.GetID()), tickerID);
+		}
+		timerMask = maskNew;
+	}
+}
+
 /**
  * Resize the content windows, embedding the editor and output windows.
  */
@@ -352,6 +375,9 @@ void SciTEWin::SizeSubWindows() {
 		TCM_ADJUSTRECT, TRUE, LPARAM(&r));
 	bands[bandTab].height = r.bottom - r.top - 4;
 
+	bands[bandBackground].visible = backgroundStrip.visible;
+	bands[bandUser].height = userStrip.Height();
+	bands[bandUser].visible = userStrip.visible;
 	bands[bandSearch].visible = searchStrip.visible;
 	bands[bandFind].visible = findStrip.visible;
 	bands[bandReplace].visible = replaceStrip.visible;
@@ -890,8 +916,8 @@ static LRESULT PASCAL TabWndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM
 						::DeleteObject(brush);
 						::SelectObject(hDC, penOld);
 						::DeleteObject(pen);
+						::ReleaseDC(hWnd, hDC);
 					}
-					::ReleaseDC(hWnd, hDC);
 				}
 			}
 		}
@@ -1042,6 +1068,30 @@ void SciTEWin::Creation() {
 	::CreateWindowEx(
 	               0,
 	               classNameInternal,
+	               TEXT("userStrip"),
+	               WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+	               0, 0,
+	               100, 100,
+	               MainHWND(),
+	               reinterpret_cast<HMENU>(2001),
+	               hInstance,
+	               reinterpret_cast<LPSTR>(&userStrip));
+
+	::CreateWindowEx(
+	               0,
+	               classNameInternal,
+	               TEXT("backgroundStrip"),
+	               WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+	               0, 0,
+	               100, 100,
+	               MainHWND(),
+	               reinterpret_cast<HMENU>(2001),
+	               hInstance,
+	               reinterpret_cast<LPSTR>(&backgroundStrip));
+
+	::CreateWindowEx(
+	               0,
+	               classNameInternal,
 	               TEXT("searchStrip"),
 	               WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
 	               0, 0,
@@ -1100,6 +1150,8 @@ void SciTEWin::Creation() {
 	bands.push_back(Band(true, heightTools, false, wToolBar));
 	bands.push_back(Band(true, heightTab, false, wTabBar));
 	bands.push_back(Band(true, 100, true, wContent));
+	bands.push_back(Band(true, userStrip.Height(), false, userStrip));
+	bands.push_back(Band(true, backgroundStrip.Height(), false, backgroundStrip));
 	bands.push_back(Band(true, searchStrip.Height(), false, searchStrip));
 	bands.push_back(Band(true, findStrip.Height(), false, findStrip));
 	bands.push_back(Band(true, replaceStrip.Height(), false, replaceStrip));

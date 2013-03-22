@@ -64,6 +64,8 @@
 #include "SciTE.h"
 #include "Mutex.h"
 #include "JobQueue.h"
+#include "Cookie.h"
+#include "Worker.h"
 #include "SciTEBase.h"
 
 static ExtensionAPI *host = 0;
@@ -150,13 +152,13 @@ static bool SendPipeCommand(const char *pipeCommand) {
 }
 
 static gboolean ReceiverPipeSignal(GIOChannel *source, GIOCondition condition, void *data) {
+#ifndef GDK_VERSION_3_6
 	gdk_threads_enter();
-	char pipeData[8192];
-	PropSetFile pipeProps;
-	DirectorExtension *ext = reinterpret_cast<DirectorExtension *>(data);
+#endif
 
 	if ((condition & G_IO_IN) == G_IO_IN) {
 		SString pipeString;
+		char pipeData[8192];
 		gsize readLength;
 		GError *error = NULL;
 		GIOStatus status = g_io_channel_read_chars(source, pipeData,
@@ -167,9 +169,12 @@ static gboolean ReceiverPipeSignal(GIOChannel *source, GIOCondition condition, v
 			status = g_io_channel_read_chars(source, pipeData,
 			        sizeof(pipeData) - 1, &readLength, &error);
 		}
+		DirectorExtension *ext = reinterpret_cast<DirectorExtension *>(data);
 		ext->HandleStringMessage(pipeString.c_str());
 	}
+#ifndef GDK_VERSION_3_6
 	gdk_threads_leave();
+#endif
 	return TRUE;
 }
 

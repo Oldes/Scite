@@ -75,43 +75,6 @@ public:
 	}
 };
 
-// Related to Utf8_16::encodingType but with additional values at end
-enum UniMode {
-    uni8Bit = 0, uni16BE = 1, uni16LE = 2, uniUTF8 = 3,
-    uniCookie = 4
-};
-
-struct Worker {
-	virtual ~Worker() {}
-	virtual void Execute() {}
-};
-
-class SciTEBase;
-#ifdef SCI_NAMESPACE
-using Scintilla::ILoader;
-#endif
-
-class FileLoader : public Worker {
-public:
-	SciTEBase *pSciTE;
-	ILoader *pLoader;
-	FilePath path;
-	long size;
-	int err;
-	FILE *fp;
-	volatile bool completed;
-	volatile bool cancelling;
-	long readSoFar;
-	GUI::ElapsedTime et;
-	UniMode unicodeMode;
-
-	FileLoader(SciTEBase *pSciTE_, ILoader *pLoader_, FilePath path_, long size_, FILE *fp_);
-	virtual ~FileLoader();
-	virtual double Duration();
-	virtual void Execute();
-	void Cancel();
-};
-
 struct BufferState : public RecentFile {
 public:
 	std::vector<int> foldState;
@@ -124,56 +87,75 @@ public:
 	std::vector<BufferState> buffers;
 };
 
+struct FileWorker;
+
 class Buffer : public RecentFile {
 public:
 	sptr_t doc;
 	bool isDirty;
+	bool isReadOnly;
 	bool useMonoFont;
 	enum { empty, reading, readAll, open } lifeState;
 	UniMode unicodeMode;
 	time_t fileModTime;
 	time_t fileModLastAsk;
+	time_t documentModTime;
 	enum { fmNone, fmMarked, fmModified} findMarks;
 	SString overrideExtension;	///< User has chosen to use a particular language
 	std::vector<int> foldState;
 	std::vector<int> bookmarks;
-	FileLoader *pFileLoader;
+	FileWorker *pFileWorker;
 	PropSetFile props;
+	enum FutureDo { fdNone=0, fdFinishSave=1 } futureDo;
 	Buffer() :
-			RecentFile(), doc(0), isDirty(false), useMonoFont(false), lifeState(empty),
-			unicodeMode(uni8Bit), fileModTime(0), fileModLastAsk(0), findMarks(fmNone), pFileLoader(0) {}
+			RecentFile(), doc(0), isDirty(false), isReadOnly(false), useMonoFont(false), lifeState(empty),
+			unicodeMode(uni8Bit), fileModTime(0), fileModLastAsk(0), documentModTime(0),
+			findMarks(fmNone), pFileWorker(0), futureDo(fdNone) {}
 
 	void Init() {
 		RecentFile::Init();
 		isDirty = false;
+		isReadOnly = false;
 		useMonoFont = false;
 		lifeState = empty;
 		unicodeMode = uni8Bit;
 		fileModTime = 0;
 		fileModLastAsk = 0;
+		documentModTime = 0;
 		findMarks = fmNone;
 		overrideExtension = "";
 		foldState.clear();
 		bookmarks.clear();
-		pFileLoader = 0;
+		pFileWorker = 0;
+		futureDo = fdNone;
 	}
 
 	void SetTimeFromFile() {
 		fileModTime = ModifiedTime();
 		fileModLastAsk = fileModTime;
+		documentModTime = fileModTime;
 	}
 
-	void CompleteLoading() {
-		lifeState = open;
-		delete pFileLoader;
-		pFileLoader = 0;
-	}
+	void DocumentModified();
+	bool NeedsSave(int delayBeforeSave);
+
+	void CompleteLoading();
+	void CompleteStoring();
+	void AbandonAutomaticSave();
 
 	bool ShouldNotSave() const {
 		return lifeState != open;
 	}
 
-	void Cancel();
+	void CancelLoad();
+};
+
+struct BackgroundActivities {
+	int loaders;
+	int storers;
+	int totalWork;
+	int totalProgress;
+	GUI::gui_string fileNameLast;
 };
 
 class BufferList {
@@ -185,13 +167,16 @@ public:
 	Buffer *buffers;
 	int size;
 	int length;
+	int lengthVisible;
 	bool initialised;
+
 	BufferList();
 	~BufferList();
 	void Allocate(int maxSize);
 	int Add();
-	int GetDocumentByLoader(FileLoader *pFileLoader) const;
+	int GetDocumentByWorker(FileWorker *pFileWorker) const;
 	int GetDocumentByName(FilePath filename, bool excludeCurrent=false);
+	void RemoveInvisible(int index);
 	void RemoveCurrent();
 	int Current() const;
 	Buffer *CurrentBuffer();
@@ -201,6 +186,14 @@ public:
 	void CommitStackSelection();
 	void MoveToStackTop(int index);
 	void ShiftTo(int indexFrom, int indexTo);
+	void Swap(int indexA, int indexB);
+	bool SingleBuffer() const;
+	BackgroundActivities CountBackgroundActivities() const;
+	bool SavingInBackground() const;
+	bool GetVisible(int index);
+	void SetVisible(int index, bool visible);
+	void AddFuture(int index, Buffer::FutureDo fd);
+	void FinishedFuture(int index, Buffer::FutureDo fd);
 private:
 	void PopStack();
 };
@@ -342,7 +335,8 @@ public:
 	virtual void MoveBack(int distance) = 0;
 	virtual void ScrollEditorIfNeeded() = 0;
 
-	virtual int FindNext(bool reverseDirection, bool showWarnings = true) = 0;
+	virtual int FindNext(bool reverseDirection, bool showWarnings = true, bool allowRegExp=true) = 0;
+	virtual void HideMatch() = 0;
 	virtual int MarkAll() = 0;
 	virtual int ReplaceAll(bool inSelection) = 0;
 	virtual void ReplaceOnce() = 0;
@@ -370,12 +364,7 @@ public:
 	}
 };
 
-enum { 
-	WORK_FILEREAD = 1,
-	WORK_PLATFORM = 100
-};
-
-class SciTEBase : public ExtensionAPI, public Searcher {
+class SciTEBase : public ExtensionAPI, public Searcher, public WorkerListener {
 protected:
 	GUI::gui_string windowName;
 	FilePath filePath;
@@ -396,7 +385,7 @@ protected:
 	ComboMemory memFiles;
 	ComboMemory memDirectory;
 	SString parameterisedCommand;
-	char abbrevInsert[200];
+	SString abbrevInsert;
 
 	enum { languageCmdID = IDM_LANGUAGE };
 	LanguageMenuItem *languageMenu;
@@ -465,6 +454,11 @@ protected:
 	enum { toolMax = 50 };
 	Extension *extender;
 	bool needReadProperties;
+	bool quitting;
+
+	int timerMask;
+	enum { timerAutoSave=1 };
+	int delayBeforeAutoSave;
 
 	int heightOutput;
 	int heightOutputStartDrag;
@@ -482,8 +476,8 @@ protected:
 
 	bool indentationWSVisible;
 	int indentExamine;
-
 	bool autoCompleteIgnoreCase;
+	bool callTipUseEscapes;
 	bool callTipIgnoreCase;
 	bool autoCCausedByOnlyOne;
 	SString calltipWordCharacters;
@@ -576,6 +570,7 @@ protected:
 	void ReadDirectoryPropFile();
 
 	int CallFocused(unsigned int msg, uptr_t wParam = 0, sptr_t lParam = 0);
+	int CallFocusedElseDefault(int defaultValue, unsigned int msg, uptr_t wParam = 0, sptr_t lParam = 0);
 	sptr_t CallPane(int destination, unsigned int msg, uptr_t wParam = 0, sptr_t lParam = 0);
 	void CallChildren(unsigned int msg, uptr_t wParam = 0, sptr_t lParam = 0);
 	SString GetTranslationToAbout(const char * const propname, bool retainIfNotFound = true);
@@ -631,7 +626,10 @@ protected:
 	    ofQuiet = 8,		// Avoid "Could not open file" message
 	    ofSynchronous = 16	// Force synchronous read
 	};
-	void TextRead(FileLoader *pFileLoader);
+	void TextRead(FileWorker *pFileLoader);
+	void TextWritten(FileWorker *pFileStorer);
+	void UpdateProgress(Worker *pWorker);
+	void PerformDeferredTasks();
 	enum OpenCompletion { ocSynchronous, ocCompleteCurrent, ocCompleteSwitch };
 	void CompleteOpen(OpenCompletion oc);
 	virtual bool PreOpenCheck(const GUI::gui_char *file);
@@ -643,13 +641,20 @@ protected:
 	int SaveIfUnsureAll(bool forceQuestion = false);
 	int SaveIfUnsureForBuilt();
 	bool SaveIfNotOpen(const FilePath &destFile, bool fixCase);
-	bool Save();
+	void AbandonAutomaticSave();
+	enum SaveFlags {
+	    sfNone = 0, 		// Default
+	    sfProgressVisible = 1, 	// Show in background save strip
+	    sfSynchronous = 16	// Write synchronously blocking UI
+	};
+	bool Save(SaveFlags sf = sfProgressVisible);
 	void SaveAs(const GUI::gui_char *file, bool fixCase);
 	virtual void SaveACopy() = 0;
 	void SaveToHTML(FilePath saveName);
 	void StripTrailingSpaces();
 	void EnsureFinalNewLine();
-	bool SaveBuffer(FilePath saveName);
+	bool PrepareBufferForSave(FilePath saveName);
+	bool SaveBuffer(FilePath saveName, SaveFlags sf);
 	virtual void SaveAsHTML() = 0;
 	void SaveToRTF(FilePath saveName, int start = 0, int end = -1);
 	virtual void SaveAsRTF() = 0;
@@ -671,11 +676,16 @@ protected:
 	int GetMenuCommandAsInt(SString commandName);
 	virtual void Print(bool) {}
 	virtual void PrintSetup() {}
+	virtual void UserStripShow(const char * /* description */) {}
+	virtual void UserStripSet(int /* control */, const char * /* value */) {}
+	virtual void UserStripSetList(int /* control */, const char * /* value */) {}
+	virtual const char *UserStripValue(int /* control */) { return 0; }
+	virtual void ShowBackgroundProgress(const GUI::gui_string & /* explanation */, int /* size */, int /* progress */) {}
 	Sci_CharacterRange GetSelection();
 	SelectedRange GetSelectedRange();
 	void SetSelection(int anchor, int currentPos);
 	//	void SelectionExtend(char *sel, int len, char *notselchar);
-	void GetCTag(char *sel, int len);
+	SString GetCTag();
 	SString GetRange(GUI::ScintillaWindow &win, int selStart, int selEnd);
 	virtual SString GetRangeInUIEncoding(GUI::ScintillaWindow &win, int selStart, int selEnd);
 	SString GetLine(GUI::ScintillaWindow &win, int line);
@@ -698,7 +708,8 @@ protected:
 	virtual void SetReplace(const char *sReplace);
 	virtual void MoveBack(int distance);
 	virtual void ScrollEditorIfNeeded();
-	int FindNext(bool reverseDirection, bool showWarnings = true);
+	virtual int FindNext(bool reverseDirection, bool showWarnings = true, bool allowRegExp=true);
+	virtual void HideMatch();
 	virtual void FindIncrement() = 0;
 	int IncrementSearchMode();
 	virtual void FindInFiles() = 0;
@@ -722,9 +733,8 @@ protected:
 	void GoMatchingPreprocCond(int direction, bool select);
 	virtual void FindReplace(bool replace) = 0;
 	void OutputAppendString(const char *s, int len = -1);
-	void OutputAppendStringSynchronised(const char *s, int len = -1);
+	virtual void OutputAppendStringSynchronised(const char *s, int len = -1);
 	void MakeOutputVisible();
-	void ClearJobQueue();
 	virtual void Execute();
 	virtual void StopExecute() = 0;
 	void ShowMessages(int line);
@@ -738,6 +748,7 @@ protected:
 	virtual bool StartAutoComplete();
 	virtual bool StartAutoCompleteWord(bool onlyOneWord);
 	virtual bool StartExpandAbbreviation();
+	bool PerformInsertAbbreviation();
 	virtual bool StartInsertAbbreviation();
 	virtual bool StartBlockComment();
 	virtual bool StartBoxComment();
@@ -780,7 +791,7 @@ protected:
 	void FoldAll();
 	void ToggleFoldRecursive(int line, int level);
 	void EnsureAllChildrenVisible(int line, int level);
-	void EnsureRangeVisible(int posStart, int posEnd, bool enforcePolicy = true);
+	void EnsureRangeVisible(GUI::ScintillaWindow &win, int posStart, int posEnd, bool enforcePolicy = true);
 	void GotoLineEnsureVisible(int line);
 	bool MarginClick(int position, int modifiers);
 	void NewLineInOutput();
@@ -798,7 +809,7 @@ protected:
 	bool BookmarkPresent(int lineno = -1);
 	void BookmarkToggle(int lineno = -1);
 	void BookmarkNext(bool forwardScan = true, bool select = false);
-	void ToggleOutputVisible();
+	virtual void ToggleOutputVisible();
 	virtual void SizeContentWindows() = 0;
 	virtual void SizeSubWindows() = 0;
 
@@ -867,6 +878,11 @@ protected:
 	int NormaliseSplit(int splitPos);
 	void MoveSplit(GUI::Point ptNewDrag);
 
+	virtual void TimerStart(int mask);
+	virtual void TimerEnd(int mask);
+	void OnTimer();
+
+	void SetHomeProperties();
 	void UIAvailable();
 	void PerformOne(char *action);
 	void StartRecordMacro();
@@ -887,7 +903,8 @@ protected:
 	};
 	virtual bool GrepIntoDirectory(const FilePath &directory);
 	void GrepRecursive(GrepFlags gf, FilePath baseDir, const char *searchString, const GUI::gui_char *fileTypes);
-	void InternalGrep(GrepFlags gf, const GUI::gui_char *directory, const GUI::gui_char *files, const char *search);
+	void InternalGrep(GrepFlags gf, const GUI::gui_char *directory, const GUI::gui_char *files,
+			  const char *search, sptr_t &originalEnd);
 	void EnumProperties(const char *action);
 	void SendOneProperty(const char *kind, const char *key, const char *val);
 	void PropertyFromDirector(const char *arg);
@@ -934,9 +951,6 @@ private:
 	void operator=(const SciTEBase&);
 };
 
-/// Base size of file I/O operations.
-const int blockSize = 131072;
-
 #if defined(__unix__)
 // MessageBox
 #define MB_OK	(0L)
@@ -951,7 +965,7 @@ const int blockSize = 131072;
 #endif
 
 int ControlIDOfCommand(unsigned long);
-void LowerCaseString(char *s);
+std::vector<GUI::gui_string> ListFromString(const GUI::gui_string &args);
 long ColourOfProperty(PropSetFile &props, const char *key, Colour colourDefault);
 void WindowSetFocus(GUI::ScintillaWindow &w);
 

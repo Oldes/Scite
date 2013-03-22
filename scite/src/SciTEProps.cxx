@@ -64,6 +64,8 @@ const GUI::gui_char menuAccessIndicator[] = GUI_TEXT("&");
 #include "IFaceTable.h"
 #include "Mutex.h"
 #include "JobQueue.h"
+#include "Cookie.h"
+#include "Worker.h"
 #include "SciTEBase.h"
 
 void SciTEBase::SetImportMenu() {
@@ -451,15 +453,6 @@ void SciTEBase::SetStyleFor(GUI::ScintillaWindow &win, const char *lang) {
 	SetStyleBlock(win, lang, 0, maxStyle);
 }
 
-void LowerCaseString(char *s) {
-	while (*s) {
-		if ((*s >= 'A') && (*s <= 'Z')) {
-			*s = static_cast<char>(*s - 'A' + 'a');
-		}
-		s++;
-	}
-}
-
 SString SciTEBase::ExtensionFileName() {
 	if (CurrentBuffer()->overrideExtension.length()) {
 		return CurrentBuffer()->overrideExtension;
@@ -467,15 +460,14 @@ SString SciTEBase::ExtensionFileName() {
 		FilePath name = FileNameExt();
 		if (name.IsSet()) {
 			// Force extension to lower case
-			char fileNameWithLowerCaseExtension[MAX_PATH];
-			strcpy(fileNameWithLowerCaseExtension, name.AsUTF8().c_str());
+			SString fileNameWithLowerCaseExtension = name.AsUTF8().c_str();
 #if !defined(GTK)
-			char *extension = strrchr(fileNameWithLowerCaseExtension, '.');
+			const char *extension = strrchr(fileNameWithLowerCaseExtension.c_str(), '.');
 			if (extension) {
-				LowerCaseString(extension);
+				fileNameWithLowerCaseExtension.lowercase(extension - fileNameWithLowerCaseExtension.c_str());
 			}
 #endif
-			return SString(fileNameWithLowerCaseExtension);
+			return fileNameWithLowerCaseExtension;
 		} else {
 			return props.Get("default.file.ext");
 		}
@@ -586,6 +578,7 @@ static const char *propertiesToForward[] = {
 	"fold.basic.explicit.end",
 	"fold.basic.explicit.start",
 	"fold.basic.syntax.based",
+	"fold.coffeescript.comment",
 	"fold.comment",
 	"fold.comment.nimrod",
 	"fold.comment.yaml",
@@ -625,6 +618,9 @@ static const char *propertiesToForward[] = {
 	"lexer.cpp.track.preprocessor",
 	"lexer.cpp.triplequoted.strings",
 	"lexer.cpp.update.preprocessor",
+	"lexer.css.hss.language",
+	"lexer.css.less.language",
+	"lexer.css.scss.language",
 	"lexer.d.fold.at.else",
 	"lexer.errorlist.value.separate",
 	"lexer.flagship.styling.within.preprocessor",
@@ -780,7 +776,8 @@ void SciTEBase::ReadProperties() {
 				wEditor.CallString(SCI_SETLEXERLANGUAGE, 0, "lpeg");
 				lexLPeg = wEditor.Call(SCI_GETLEXER);
 				const char *lexer = language.c_str() + language.search("_") + 1;
-				wEditor.CallString(SCI_PRIVATELEXERCALL, SCI_SETLEXERLANGUAGE, lexer);
+				wEditor.CallReturnPointer(SCI_PRIVATELEXERCALL, SCI_SETLEXERLANGUAGE,
+					reinterpret_cast<sptr_t>(lexer));
 			}
 		} else {
 			wEditor.CallString(SCI_SETLEXERLANGUAGE, 0, language.c_str());
@@ -1006,10 +1003,11 @@ void SciTEBase::ReadProperties() {
 
 	sval = FindLanguageProperty("calltip.*.ignorecase");
 	callTipIgnoreCase = sval == "1";
+	sval = FindLanguageProperty("calltip.*.use.escapes");
+	callTipUseEscapes = sval == "1";
 
 	calltipWordCharacters = FindLanguageProperty("calltip.*.word.characters",
 		"_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ");
-
 	calltipParametersStart = FindLanguageProperty("calltip.*.parameters.start", "(");
 	calltipParametersEnd = FindLanguageProperty("calltip.*.parameters.end", ")");
 	calltipParametersSeparators = FindLanguageProperty("calltip.*.parameters.separators", ",;");
@@ -1041,7 +1039,7 @@ void SciTEBase::ReadProperties() {
 	wOutput.Call(SCI_AUTOCSETIGNORECASE, 1);
 
 	int autoCChooseSingle = props.GetInt("autocomplete.choose.single");
-	wEditor.Call(SCI_AUTOCSETCHOOSESINGLE, autoCChooseSingle),
+	wEditor.Call(SCI_AUTOCSETCHOOSESINGLE, autoCChooseSingle);
 
 	wEditor.Call(SCI_AUTOCSETCANCELATSTART, 0);
 	wEditor.Call(SCI_AUTOCSETDROPRESTOFWORD, 0);
@@ -1313,8 +1311,6 @@ void SciTEBase::ReadProperties() {
 		wEditor.CallString(SCI_MARKERDEFINEPIXMAP, markerBookmark,
 			reinterpret_cast<char *>(bookmarkBluegem));
 	}
-	wEditor.CallString(SCI_REGISTERIMAGE, 1,
-		reinterpret_cast<char *>(bookmarkBluegem));
 
 	wEditor.Call(SCI_SETSCROLLWIDTH, props.GetInt("horizontal.scroll.width", 2000));
 	wEditor.Call(SCI_SETSCROLLWIDTHTRACKING, props.GetInt("horizontal.scroll.width.tracking", 1));
@@ -1374,6 +1370,14 @@ void SciTEBase::ReadProperties() {
 			}
 		}
 	}
+
+	delayBeforeAutoSave = props.GetInt("save.on.timer");
+	if (delayBeforeAutoSave) {
+		TimerStart(timerAutoSave);
+	} else {
+		TimerEnd(timerAutoSave);
+	}
+
 	firstPropertiesRead = false;
 	needReadProperties = false;
 }

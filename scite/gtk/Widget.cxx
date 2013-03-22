@@ -21,8 +21,10 @@
 // Key names are longer for GTK+ 3
 #if GTK_CHECK_VERSION(3,0,0)
 #define GKEY_Escape GDK_KEY_Escape
+#define GKEY_Void GDK_KEY_VoidSymbol
 #else
 #define GKEY_Escape GDK_Escape
+#define GKEY_Void GDK_VoidSymbol
 #endif
 
 WBase::operator GtkWidget*() {
@@ -43,6 +45,10 @@ void WBase::SetSensitive(bool sensitive) {
 
 void WStatic::Create(GUI::gui_string text) {
 	SetID(gtk_label_new_with_mnemonic(text.c_str()));
+}
+
+bool WStatic::HasMnemonic() {
+	return gtk_label_get_mnemonic_keyval(GTK_LABEL(Pointer())) != GKEY_Void;
 }
 
 void WStatic::SetMnemonicFor(WBase &w) {
@@ -115,10 +121,18 @@ void WComboBoxEntry::AppendText(const char *text) {
 #endif
 }
 
-void WComboBoxEntry::FillFromMemory(const std::vector<std::string> &mem, bool useTop) {
+void WComboBoxEntry::ClearList() {
+#if GTK_CHECK_VERSION(3,0,0)
+	gtk_combo_box_text_remove_all(GTK_COMBO_BOX_TEXT(GetID()));
+#else
 	for (int i = 0; i < 10; i++) {
 		RemoveText(0);
 	}
+#endif
+}
+
+void WComboBoxEntry::FillFromMemory(const std::vector<std::string> &mem, bool useTop) {
+	ClearList();
 	for (size_t i = 0; i < mem.size(); i++) {
 		AppendText(mem[i].c_str());
 	}
@@ -156,16 +170,25 @@ void WToggle::SetActive(bool active) {
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(GetID()), active);
 }
 
-WCheckDraw::WCheckDraw() : isActive(false), pbGrey(0), pStyle(0), over(false) {
+void WProgress::Create() {
+	SetID(gtk_progress_bar_new());
+}
+
+WCheckDraw::WCheckDraw() : isActive(false), pbGrey(0), over(false) {
+#if !GTK_CHECK_VERSION(3,4,0)
+	pStyle = 0;
+#endif
 }
 
 WCheckDraw::~WCheckDraw() {
 	if (pbGrey)
 		g_object_unref(pbGrey);
 	pbGrey = 0;
+#if !GTK_CHECK_VERSION(3,4,0)
 	if (pStyle)
 		g_object_unref(pStyle);
 	pStyle = 0;
+#endif
 }
 
 static void GreyToAlpha(GdkPixbuf *ppb, GdkColor fore) {
@@ -193,7 +216,11 @@ void WCheckDraw::Create(const char **xpmImage, GUI::gui_string toolTip, GtkStyle
 	pbGrey = gdk_pixbuf_new_from_xpm_data(xpmImage);
 
 	GtkWidget *da = gtk_drawing_area_new();
+#if GTK_CHECK_VERSION(3,4,0)
+	(void)pStyle_;
+#else
 	pStyle = gtk_style_copy(pStyle_);
+#endif
 
 #if GTK_CHECK_VERSION(2,20,0)
 	gtk_widget_set_can_focus(da, TRUE);
@@ -289,21 +316,41 @@ gboolean WCheckDraw::MouseEnterLeave(GtkWidget */*widget*/, GdkEventCrossing *ev
 gboolean WCheckDraw::Draw(GtkWidget *widget, cairo_t *cr) {
 	GtkAllocation allocation;
 	gtk_widget_get_allocation(widget, &allocation);
+
+#if GTK_CHECK_VERSION(3,4,0)
+	GtkStyleContext *context = gtk_widget_get_style_context(widget);
+	gtk_style_context_save(context);
+	gtk_style_context_add_class(context, GTK_STYLE_CLASS_BUTTON);
+#else
 	GdkWindow *window = gtk_widget_get_window(widget);
 	pStyle = gtk_style_attach(pStyle, window);
+#endif
 
 	int heightOffset = (allocation.height - checkButtonWidth) / 2;
 	if (heightOffset < 0)
 		heightOffset = 0;
 
 	bool active = isActive;
+#if GTK_CHECK_VERSION(3,4,0)
+	GtkStateFlags flags = active ? GTK_STATE_FLAG_ACTIVE : GTK_STATE_FLAG_NORMAL;
+	if (over) {
+		flags = static_cast<GtkStateFlags>(flags | GTK_STATE_FLAG_PRELIGHT);
+	}
+#else
 	GtkStateType state = active ? GTK_STATE_ACTIVE : GTK_STATE_NORMAL;
-	GtkShadowType shadow = GTK_SHADOW_IN;
 	if (over) {
 		state = GTK_STATE_PRELIGHT;
-		shadow = GTK_SHADOW_OUT;
 	}
-	if (active || over)
+#endif
+	if (active || over) {
+#if GTK_CHECK_VERSION(3,4,0)
+		gtk_style_context_set_state(context, flags);
+		gtk_render_background(context, cr, 0, 0,
+			allocation.width, allocation.height);
+		gtk_render_frame(context, cr, 0, 0,
+			allocation.width, allocation.height);
+#else
+		GtkShadowType shadow = over ? GTK_SHADOW_OUT : GTK_SHADOW_IN;
 		gtk_paint_box(pStyle,
 			cr,
 			state,
@@ -311,18 +358,36 @@ gboolean WCheckDraw::Draw(GtkWidget *widget, cairo_t *cr) {
 			widget, const_cast<char *>("button"),
 			0, 0,
 			allocation.width, allocation.height);
+#endif
+	}
 
 	if (HasFocus()) {
 		// Draw focus inset by 2 pixels
+#if GTK_CHECK_VERSION(3,4,0)
+		gtk_render_focus(context, cr, 2, 2,
+			allocation.width-4, allocation.height-4);
+#else
 		gtk_paint_focus(pStyle,
 			cr,
 			state,
 			widget, const_cast<char *>("button"),
 			2, 2,
 			allocation.width-4, allocation.height-4);
+#endif
 	}
 
+#if GTK_CHECK_VERSION(3,4,0)
+	GdkRGBA rgbaFore;
+	gtk_style_context_get_color(context, GTK_STATE_FLAG_NORMAL, &rgbaFore);
+	GdkColor fore;
+	fore.red = rgbaFore.red * 65535;
+	fore.green = rgbaFore.green * 65535;
+	fore.blue = rgbaFore.blue * 65535;
+	fore.pixel = 0;
+	gtk_style_context_restore(context);
+#else
 	GdkColor fore = pStyle->fg[GTK_STATE_NORMAL];
+#endif
 	// Give it an alpha channel
 	GdkPixbuf *pbAlpha = gdk_pixbuf_add_alpha(pbGrey, TRUE, 0xff, 0xff, 0);
 	// Convert the grey to alpha and make black
@@ -408,23 +473,42 @@ gboolean WCheckDraw::ExposeEvent(GtkWidget *widget, GdkEventExpose *event, WChec
 
 #endif
 
+#if GTK_CHECK_VERSION(3,4,0)
+#define USE_GRID 1
+#else
+#define USE_GRID 0
+#endif
+
 WTable::WTable(int rows_, int columns_) :
 	rows(rows_), columns(columns_), next(0) {
+#if USE_GRID
+	SetID(gtk_grid_new());
+#else
 	SetID(gtk_table_new(rows, columns, FALSE));
+#endif
 }
 
 void WTable::Add(GtkWidget *child, int width, bool expand, int xpadding, int ypadding) {
-	GtkAttachOptions opts = static_cast<GtkAttachOptions>(
-		GTK_SHRINK | GTK_FILL);
-	GtkAttachOptions optsExpand = static_cast<GtkAttachOptions>(
-		GTK_SHRINK | GTK_FILL | GTK_EXPAND);
-
 	if (child) {
+#if USE_GRID
+		gtk_widget_set_hexpand(child, expand);
+		gtk_widget_set_margin_right(child, xpadding);
+		gtk_widget_set_margin_bottom(child, ypadding);
+		gtk_grid_attach(GTK_GRID(GetID()), child,
+			next % columns, next / columns,
+			width, 1);
+#else
+		GtkAttachOptions opts = static_cast<GtkAttachOptions>(
+			GTK_SHRINK | GTK_FILL);
+		GtkAttachOptions optsExpand = static_cast<GtkAttachOptions>(
+			GTK_SHRINK | GTK_FILL | GTK_EXPAND);
+
 		gtk_table_attach(GTK_TABLE(GetID()), child,
 			next % columns, next % columns + width,
 			next / columns, (next / columns) + 1,
 			expand ? optsExpand : opts, opts,
 			xpadding, ypadding);
+#endif
 	}
 	next += width;
 }
@@ -436,6 +520,19 @@ void WTable::Label(GtkWidget *child) {
 
 void WTable::PackInto(GtkBox *box, gboolean expand) {
 	gtk_box_pack_start(box, Pointer(), expand, expand, 0);
+}
+
+void WTable::Resize(int rows_, int columns_) {
+	rows = rows_;
+	columns = columns_;
+#if !USE_GRID
+	gtk_table_resize(GTK_TABLE(GetID()), rows, columns);
+#endif
+	next = 0;
+}
+
+void WTable::NextLine() {
+	next = ((next - 1) / columns + 1) * columns;
 }
 
 GUI::gui_char KeyFromLabel(GUI::gui_string label) {

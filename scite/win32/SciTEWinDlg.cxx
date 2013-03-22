@@ -22,8 +22,8 @@ static void FlashThisWindow(
 		::GetClientRect(hWnd, &rc);
 		::FillRect(hDC, &rc, (HBRUSH)GetStockObject(BLACK_BRUSH));
 		::Sleep(duration);
+		::ReleaseDC(hWnd, hDC);
 	}
-	::ReleaseDC(hWnd, hDC);
 	::InvalidateRect(hWnd, NULL, true);
 }
 
@@ -145,6 +145,7 @@ bool SciTEWin::ModelessHandler(MSG *pmsg) {
 		               (pmsg->wParam != VK_TAB) &&
 		               (pmsg->wParam != VK_ESCAPE) &&
 		               (pmsg->wParam != VK_RETURN) &&
+		               (pmsg->wParam < 'A' || pmsg->wParam > 'Z') &&
 		               (IsKeyDown(VK_CONTROL) || !IsKeyDown(VK_MENU));
 		if (!menuKey && DialogHandled(wParameters.GetID(), pmsg))
 			return true;
@@ -155,6 +156,8 @@ bool SciTEWin::ModelessHandler(MSG *pmsg) {
 		if (findStrip.KeyDown(pmsg->wParam))
 			return true;
 		if (replaceStrip.KeyDown(pmsg->wParam))
+			return true;
+		if (userStrip.KeyDown(pmsg->wParam))
 			return true;
 	}
 	if (pmsg->message == WM_KEYDOWN || pmsg->message == WM_SYSKEYDOWN) {
@@ -215,16 +218,17 @@ bool SciTEWin::OpenDialog(FilePath directory, const GUI::gui_char *filter) {
 
 	if (!openWhat[0]) {
 		wcscpy(openWhat, localiser.Text("Custom Filter").c_str());
-		openWhat[wcslen(openWhat) + 1] = '\0';
+		// 2 NULs as there are 2 strings here: the display string and the filter string
+		openWhat[wcslen(openWhat) + 1] = L'\0';
 	}
 
 	bool succeeded = false;
 	GUI::gui_char openName[maxBufferSize]; // maximum common dialog buffer size (says mfc..)
 	openName[0] = '\0';
 
-	OPENFILENAMEW ofn = {
-	       sizeof(ofn), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	};
+	OPENFILENAMEW ofn;
+	memset(&ofn, 0, sizeof(ofn));
+	ofn.lStructSize = sizeof(ofn);
 	ofn.hwndOwner = MainHWND();
 	ofn.hInstance = hInstance;
 	ofn.lpstrFile = openName;
@@ -275,9 +279,9 @@ FilePath SciTEWin::ChooseSaveName(FilePath directory, const char *title, const G
 		if (!savePath.IsUntitled()) {
 			wcscpy(saveName, savePath.AsInternal());
 		}
-		OPENFILENAMEW ofn = {
-		                       sizeof(ofn), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-		                   };
+		OPENFILENAMEW ofn;
+		memset(&ofn, 0, sizeof(ofn));
+		ofn.lStructSize = sizeof(ofn);
 		ofn.hwndOwner = MainHWND();
 		ofn.hInstance = hInstance;
 		ofn.lpstrFile = saveName;
@@ -310,7 +314,7 @@ bool SciTEWin::SaveAsDialog() {
 void SciTEWin::SaveACopy() {
 	FilePath path = ChooseSaveName(filePath.Directory(), "Save a Copy");
 	if (path.IsSet()) {
-		SaveBuffer(path);
+		SaveBuffer(path, sfNone);
 	}
 }
 
@@ -356,9 +360,9 @@ void SciTEWin::SaveAsXML() {
 
 void SciTEWin::LoadSessionDialog() {
 	GUI::gui_char openName[MAX_PATH] = GUI_TEXT("");
-	OPENFILENAMEW ofn = {
-	                       sizeof(ofn), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	                   };
+	OPENFILENAMEW ofn;
+	memset(&ofn, 0, sizeof(ofn));
+	ofn.lStructSize = sizeof(ofn);
 	ofn.hwndOwner = MainHWND();
 	ofn.hInstance = hInstance;
 	ofn.lpstrFile = openName;
@@ -376,9 +380,9 @@ void SciTEWin::LoadSessionDialog() {
 void SciTEWin::SaveSessionDialog() {
 	GUI::gui_char saveName[MAX_PATH] = GUI_TEXT("\0");
 	wcscpy(saveName, GUI_TEXT("SciTE.session"));
-	OPENFILENAMEW ofn = {
-			       sizeof(ofn), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-			   };
+	OPENFILENAMEW ofn;
+	memset(&ofn, 0, sizeof(ofn));
+	ofn.lStructSize = sizeof(ofn);
 	ofn.hwndOwner = MainHWND();
 	ofn.hInstance = hInstance;
 	ofn.lpstrDefExt = GUI_TEXT("session");
@@ -816,6 +820,43 @@ static void FillComboFromProps(HWND combo, PropSetFile &props) {
 	}
 }
 
+void SciTEWin::UserStripShow(const char *description) {
+	userStrip.visible = *description != 0;
+	if (userStrip.visible) {
+		userStrip.SetSciTE(this);
+		userStrip.SetExtender(extender);
+		userStrip.SetDescription(description);
+	}
+	SizeSubWindows();
+}
+
+void SciTEWin::UserStripSet(int control, const char *value) {
+	userStrip.Set(control, value);
+}
+
+void SciTEWin::UserStripSetList(int control, const char *value) {
+	userStrip.SetList(control, value);
+}
+
+const char *SciTEWin::UserStripValue(int control) {
+	std::string val = userStrip.GetValue(control);
+	char *ret = new char[val.size() + 1];
+	strcpy(ret, val.c_str());
+	return ret;
+}
+
+void SciTEWin::UserStripClosed() {
+	SizeSubWindows();
+	WindowSetFocus(wEditor);
+}
+
+void SciTEWin::ShowBackgroundProgress(const GUI::gui_string &explanation, int size, int progress) {
+	backgroundStrip.visible = !explanation.empty();
+	SizeSubWindows();
+	if (backgroundStrip.visible)
+		backgroundStrip.SetProgress(explanation, size, progress);
+}
+
 class DialogFindReplace : public Dialog, public SearchUI  {
 	bool advanced;
 public:
@@ -1111,7 +1152,7 @@ void SciTEWin::PerformGrep() {
 			   props.Get("find.directory"),
 			   jobCLI, findInput, flags);
 	}
-	if (jobQueue.commandCurrent > 0) {
+	if (jobQueue.HasCommandToRun()) {
 		Execute();
 	}
 }
@@ -1155,6 +1196,11 @@ BOOL SciTEWin::GrepMessage(HWND hDlg, UINT message, WPARAM wParam) {
 			return FALSE;
 
 		} else if (ControlIDOfWParam(wParam) == IDOK) {
+			if (jobQueue.IsExecuting()) {
+				GUI::gui_string msgBuf = LocaliseMessage("Job is currently executing. Wait until it finishes.");
+				WindowMessageBox(wFindInFiles, msgBuf, MB_OK | MB_ICONWARNING);
+				return FALSE;
+			}
 			findWhat = dlg.ItemTextU(IDFINDWHAT);
 			props.Set("find.what", findWhat.c_str());
 			memFinds.Insert(findWhat.c_str());
@@ -1202,7 +1248,7 @@ BOOL SciTEWin::GrepMessage(HWND hDlg, UINT message, WPARAM wParam) {
 				memset(&info, 0, sizeof(info));
 				info.hwndOwner = hDlg;
 				info.pidlRoot = NULL;
-				TCHAR szDisplayName[MAX_PATH];
+				TCHAR szDisplayName[MAX_PATH] = TEXT("");
 				info.pszDisplayName = szDisplayName;
 				GUI::gui_string title = localiser.Text("Select a folder to search from");
 				info.lpszTitle = title.c_str();
@@ -1242,12 +1288,24 @@ BOOL CALLBACK SciTEWin::GrepDlg(HWND hDlg, UINT message, WPARAM wParam, LPARAM l
 }
 
 void SciTEWin::FindInFiles() {
-	if (wFindInFiles.Created())
-		return;
 	SelectionIntoFind();
+	if (wFindInFiles.Created()) {
+		HWND hDlg = reinterpret_cast<HWND>(wFindInFiles.GetID());
+		Dialog dlg(hDlg);
+		dlg.SetItemTextU(IDFINDWHAT, findWhat);
+		::SetFocus(hDlg);
+		return;
+	}
 	props.Set("find.what", findWhat.c_str());
-	FilePath findInDir = filePath.Directory();
-	props.Set("find.directory", findInDir.AsUTF8().c_str());
+	
+	SString directory = props.Get("find.in.directory");
+	if (directory.length()) {
+		props.Set("find.directory", directory.c_str());
+	} else {
+		FilePath findInDir = filePath.Directory();
+		props.Set("find.directory", findInDir.AsUTF8().c_str());
+	}
+	
 	wFindInFiles = ::CreateDialogParam(hInstance, TEXT("Grep"), MainHWND(),
 		reinterpret_cast<DLGPROC>(GrepDlg), reinterpret_cast<sptr_t>(this));
 	wFindInFiles.Show();
@@ -1395,9 +1453,7 @@ BOOL SciTEWin::AbbrevMessage(HWND hDlg, UINT message, WPARAM wParam) {
 			::EndDialog(hDlg, IDCANCEL);
 			return FALSE;
 		} else if (ControlIDOfWParam(wParam) == IDOK) {
-			SString sAbbrev = dlg.ItemTextU(IDABBREV);
-			strncpy(abbrevInsert, sAbbrev.c_str(), sizeof(abbrevInsert));
-			abbrevInsert[sizeof(abbrevInsert) - 1] = '\0';
+			abbrevInsert = dlg.ItemTextU(IDABBREV);
 			::EndDialog(hDlg, IDOK);
 			return TRUE;
 		}

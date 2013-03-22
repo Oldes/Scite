@@ -9,10 +9,10 @@
 #define SCITE_H
 
 // Version numbers and dates
-#define VERSION_SCITE "3.0.1"
-#define VERSION_WORDS 3, 0, 1, 0
-#define COPYRIGHT_DATES "December 1998-November 2011"
-#define COPYRIGHT_YEARS "1998-2011"
+#define VERSION_SCITE "3.2.5"
+#define VERSION_WORDS 3, 2, 5, 0
+#define COPYRIGHT_DATES "December 1998-February 2013"
+#define COPYRIGHT_YEARS "1998-2013"
 
 // Menu IDs.
 // These are located 100 apart. No one will want more than 100 in each menu ;)
@@ -38,6 +38,7 @@
 #define IDM_SAVEACOPY		116
 #define IDM_SAVEASXML		117
 #define IDM_COPYPATH			118
+#define IDM_ALLOWACCESS		119
 #define IDM_MRU_SEP			120
 #define IDM_MRU_SUB			121
 #define IDM_PRINTSETUP		130

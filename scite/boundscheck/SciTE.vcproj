@@ -187,6 +187,9 @@
 				RelativePath="..\..\scintilla\src\ContractionState.cxx">
 			</File>
 			<File
+				RelativePath="..\Src\Cookie.cxx">
+			</File>
+			<File
 				RelativePath="..\Src\Credits.cxx">
 			</File>
 			<File
@@ -211,6 +214,9 @@
 				RelativePath="..\src\FilePath.cxx">
 			</File>
 			<File
+				RelativePath="..\src\FileWorker.cxx">
+			</File>
+			<File
 				RelativePath="..\win32\GUIWin.cxx">
 			</File>
 			<File
@@ -218,6 +224,9 @@
 			</File>
 			<File
 				RelativePath="..\..\scintilla\src\Indicator.cxx">
+			</File>
+			<File
+				RelativePath="..\src\JobQueue.cxx">
 			</File>
 			<File
 				RelativePath="..\..\scintilla\src\KeyMap.cxx">
@@ -274,6 +283,9 @@
 				RelativePath="..\..\scintilla\lexers\LexAVE.cxx">
 			</File>
 			<File
+				RelativePath="..\..\scintilla\lexers\LexAVS.cxx">
+			</File>
+			<File
 				RelativePath="..\..\scintilla\lexers\LexBaan.cxx">
 			</File>
 			<File
@@ -298,6 +310,9 @@
 				RelativePath="..\..\scintilla\lexers\LexCOBOL.cxx">
 			</File>
 			<File
+				RelativePath="..\..\scintilla\lexers\LexCoffeeScript.cxx">
+			</File>
+			<File
 				RelativePath="..\..\scintilla\lexers\LexConf.cxx">
 			</File>
 			<File
@@ -314,6 +329,9 @@
 			</File>
 			<File
 				RelativePath="..\..\scintilla\lexers\LexD.cxx">
+			</File>
+			<File
+				RelativePath="..\..\scintilla\lexers\LexECL.cxx">
 			</File>
 			<File
 				RelativePath="..\..\scintilla\lexers\LexEiffel.cxx">
@@ -350,6 +368,9 @@
 			</File>
 			<File
 				RelativePath="..\..\scintilla\lexers\LexKix.cxx">
+			</File>
+			<File
+				RelativePath="..\..\scintilla\lexers\LexLaTeX.cxx">
 			</File>
 			<File
 				RelativePath="..\..\scintilla\lexers\LexLisp.cxx">
@@ -397,6 +418,9 @@
 				RelativePath="..\..\scintilla\lexers\LexOpal.cxx">
 			</File>
 			<File
+				RelativePath="..\..\scintilla\lexers\LexOScript.cxx">
+			</File>
+			<File
 				RelativePath="..\..\scintilla\lexers\LexOthers.cxx">
 			</File>
 			<File
@@ -410,6 +434,9 @@
 			</File>
 			<File
 				RelativePath="..\..\scintilla\lexers\LexPLM.cxx">
+			</File>
+			<File
+				RelativePath="..\..\scintilla\lexers\LexPO.cxx">
 			</File>
 			<File
 				RelativePath="..\..\scintilla\lexers\LexPOV.cxx">
@@ -472,6 +499,9 @@
 				RelativePath="..\..\scintilla\lexers\LexTCL.cxx">
 			</File>
 			<File
+				RelativePath="..\..\scintilla\lexers\LexTCMD.cxx">
+			</File>
+			<File
 				RelativePath="..\..\scintilla\lexers\LexTeX.cxx">
 			</File>
 			<File
@@ -485,6 +515,9 @@
 			</File>
 			<File
 				RelativePath="..\..\scintilla\lexers\LexVHDL.cxx">
+			</File>
+			<File
+				RelativePath="..\..\scintilla\lexers\LexVisualProlog.cxx">
 			</File>
 			<File
 				RelativePath="..\..\scintilla\lexers\LexYAML.cxx">

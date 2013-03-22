@@ -59,6 +59,7 @@ inline GtkWidget *Widget(const GUI::Window &w) {
 class WStatic : public WBase {
 public:
 	void Create(GUI::gui_string text);
+	bool HasMnemonic();
 	void SetMnemonicFor(WBase &w);
 };
 
@@ -79,6 +80,7 @@ public:
 	const GUI::gui_char *Text();
 	void SetText(const GUI::gui_char *text);
 	bool HasFocusOnSelfOrChild();
+	void ClearList();
 	void RemoveText(int position);
 	void AppendText(const char *text);
 	void FillFromMemory(const std::vector<std::string> &mem, bool useTop = false);
@@ -100,7 +102,9 @@ public:
 class WCheckDraw : public WBase {
 	bool isActive;
 	GdkPixbuf *pbGrey;
+#if !GTK_CHECK_VERSION(3,4,0)
 	GtkStyle *pStyle;
+#endif
 	bool over;
 	static gboolean Focus(GtkWidget *widget, GdkEventFocus *event, WCheckDraw *pcd);
 	gint Press(GtkWidget *widget, GdkEventButton *event);
@@ -124,6 +128,11 @@ public:
 	enum {  checkIconWidth = 16, checkButtonWidth = 16 + 3 * 2 + 1};
 };
 
+class WProgress : public WBase {
+public:
+	void Create();
+};
+
 class WTable : public WBase {
 private:
 	int rows;
@@ -135,6 +144,8 @@ public:
 		int xpadding=5, int ypadding=5);
 	void Label(GtkWidget *child);
 	void PackInto(GtkBox *box, gboolean expand=TRUE);
+	void Resize(int rows, int columns);
+	void NextLine();
 };
 
 GUI::gui_char KeyFromLabel(GUI::gui_string label);
@@ -179,13 +190,13 @@ public:
 	virtual void Show(int buttonHeight);
 	virtual void Close();
 	virtual bool KeyDown(GdkEventKey *event);
-	virtual void ShowPopup() = 0;
-	virtual void MenuAction(guint action) = 0;
+	virtual void ShowPopup() {}
+	virtual void MenuAction(guint /* action */) {}
 	static void MenuSignal(GtkMenuItem *menuItem, Strip *pStrip);
 	void AddToPopUp(GUI::Menu &popup, const char *label, int cmd, bool checked);
 	virtual void ChildFocus(GtkWidget *widget);
 	static gboolean ChildFocusSignal(GtkContainer *container, GtkWidget *widget, Strip *pStrip);
-	virtual gboolean Focus(GtkDirectionType direction) = 0;
+	virtual gboolean Focus(GtkDirectionType /* direction*/ ) { return false; }
 	static gboolean FocusSignal(GtkWidget *widget, GtkDirectionType direction, Strip *pStrip);
 	bool VisibleHasFocus();
 	static gint ButtonsPress(GtkWidget *widget, GdkEventButton *event, Strip *pstrip);

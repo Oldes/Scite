@@ -14,6 +14,21 @@ DEL = rm
 COPY = cp
 endif
 
+# Discover Windows version by running 'VER' command and parsing output
+# For Windows 2000 looks like:Microsoft Windows 2000 [Version 5.00.2195]
+WINVERWORDS:=$(wordlist 1,2,$(subst ., ,$(lastword $(shell ver))))
+WINVER:=$(firstword $(WINVERWORDS)).$(lastword $(WINVERWORDS))
+# Windows NT 4 and Windows 2000 do not support themes so turn off
+ifeq '$(WINVER)' '4.0'
+	VERSION_DEFINES:=-DDISABLE_THEMES -DWIN_TARGET=0x0400
+else
+ifeq '$(WINVER)' '5.00'
+	VERSION_DEFINES:=-DDISABLE_THEMES
+else
+	UXLIB:=-luxtheme
+endif
+endif
+
 PROG	= ../bin/SciTE.exe
 PROGSTATIC = ../bin/Sc1.exe
 WIDEFLAGS=-DUNICODE -D_UNICODE
@@ -45,7 +60,7 @@ endif
 INCLUDEDIRS=-I ../../scintilla/include -I ../../scintilla/win32 -I ../src $(LUA_INCLUDES)
 RCINCLUDEDIRS=--include-dir ../../scintilla/win32 --include-dir ../src
 
-CBASEFLAGS = -W -Wall $(INCLUDEDIRS) $(LUA_DEFINES) $(WIDEFLAGS)
+CBASEFLAGS = -W -Wall $(INCLUDEDIRS) $(LUA_DEFINES) $(WIDEFLAGS) $(VERSION_DEFINES)
 
 ifdef DEBUG
 CFLAGS=-DDEBUG -g $(CBASEFLAGS)
@@ -56,7 +71,7 @@ endif
 
 CXXFLAGS = $(CFLAGS) -Wno-char-subscripts -pedantic -fno-rtti
 
-LDFLAGS=-mwindows -lmsimg32 -lcomctl32 -limm32 -lole32 -luuid -luxtheme $(LUA_LDFLAGS)
+LDFLAGS=-mwindows -lmsimg32 -lcomctl32 -limm32 -lole32 -luuid $(UXLIB) $(LUA_LDFLAGS)
 
 .cxx.o:
 	$(CC) $(CXXFLAGS) -c $< -o $@
@@ -64,9 +79,9 @@ LDFLAGS=-mwindows -lmsimg32 -lcomctl32 -limm32 -lole32 -luuid -luxtheme $(LUA_LD
 .c.o:
 	gcc $(CFLAGS) -c $< -o $@
 
-OTHER_OBJS	= Credits.o FilePath.o SciTEBuffers.o SciTEIO.o Exporters.o PropSetFile.o StringHelpers.o \
-StringList.o SciTEProps.o SciTEWin.o SciTEWinBar.o SciTEWinDlg.o MultiplexExtension.o \
-StyleWriter.o UniqueInstance.o \
+OTHER_OBJS	= FileWorker.o Cookie.o Credits.o FilePath.o JobQueue.o SciTEBuffers.o SciTEIO.o \
+Exporters.o PropSetFile.o StringHelpers.o StringList.o SciTEProps.o SciTEWin.o SciTEWinBar.o \
+SciTEWinDlg.o MultiplexExtension.o StyleWriter.o UniqueInstance.o \
 Utf8_16.o SciTERes.o GUIWin.o \
 IFaceTable.o DirectorExtension.o JobQueue.o WinMutex.o $(LUA_OBJS)
 
@@ -79,18 +94,19 @@ DLLS=..\bin\Scintilla.dll ..\bin\SciLexer.dll
 LEXPROPS=\
 ../bin/abaqus.properties ../bin/ada.properties ../bin/asm.properties \
 ../bin/asn1.properties ../bin/au3.properties ../bin/ave.properties \
-../bin/baan.properties ../bin/blitzbasic.properties ../bin/bullant.properties \
-../bin/caml.properties ../bin/cmake.properties ../bin/cobol.properties \
-../bin/conf.properties ../bin/cpp.properties ../bin/csound.properties \
-../bin/css.properties ../bin/d.properties ../bin/eiffel.properties \
-../bin/erlang.properties ../bin/escript.properties ../bin/flagship.properties \
-../bin/forth.properties ../bin/fortran.properties ../bin/freebasic.properties \
-../bin/gap.properties ../bin/haskell.properties ../bin/html.properties \
-../bin/inno.properties ../bin/kix.properties ../bin/latex.properties \
-../bin/lisp.properties ../bin/lot.properties ../bin/lout.properties \
-../bin/lua.properties ../bin/matlab.properties ../bin/metapost.properties \
-../bin/mmixal.properties ../bin/modula3.properties ../bin/nimrod.properties \
-../bin/nncrontab.properties ../bin/nsis.properties ../bin/opal.properties \
+../bin/avs.properties ../bin/baan.properties ../bin/blitzbasic.properties \
+../bin/bullant.properties ../bin/caml.properties ../bin/cmake.properties \
+../bin/cobol.properties ../bin/conf.properties ../bin/cpp.properties \
+../bin/csound.properties ../bin/css.properties ../bin/d.properties \
+../bin/ecl.properties ../bin/eiffel.properties ../bin/erlang.properties \
+../bin/escript.properties ../bin/flagship.properties ../bin/forth.properties \
+../bin/fortran.properties ../bin/freebasic.properties ../bin/gap.properties \
+../bin/haskell.properties ../bin/html.properties ../bin/inno.properties \
+../bin/kix.properties ../bin/latex.properties ../bin/lisp.properties \
+../bin/lot.properties ../bin/lout.properties ../bin/lua.properties \
+../bin/matlab.properties ../bin/metapost.properties ../bin/mmixal.properties \
+../bin/modula3.properties ../bin/nimrod.properties ../bin/nncrontab.properties \
+../bin/nsis.properties ../bin/opal.properties ../bin/oscript.properties \
 ../bin/others.properties ../bin/pascal.properties ../bin/perl.properties \
 ../bin/pov.properties ../bin/powerpro.properties ../bin/powershell.properties \
 ../bin/ps.properties ../bin/purebasic.properties ../bin/python.properties \
@@ -134,7 +150,7 @@ $(PROG): $(OBJS)
 	$(CC) $(STRIPFLAG) -Xlinker --subsystem -Xlinker windows -o  $@ $^ $(LDFLAGS)
 
 OBJSSTATIC = Sc1.o SciTEWinBar.o SciTEWinDlg.o MultiplexExtension.o \
-	StyleWriter.o UniqueInstance.o SciTEBase.o Credits.o FilePath.o SciTEBuffers.o \
+	StyleWriter.o UniqueInstance.o SciTEBase.o FileWorker.o Cookie.o Credits.o FilePath.o SciTEBuffers.o \
 	SciTEIO.o Exporters.o PropSetFile.o StringHelpers.o StringList.o SciTEProps.o ScintillaWinL.o \
 	ScintillaBaseL.o Editor.o Catalogue.o Accessor.o WordList.o CharacterSet.o \
 	LexerModule.o LexerSimple.o LexerBase.o \
@@ -151,7 +167,7 @@ $(PROGSTATIC): $(OBJSSTATIC)
 include deps.mak
 
 Sc1.o: SciTEWin.cxx SciTEWin.h SciTE.h PropSetFile.h \
- SString.h Scintilla.h Extender.h FilePath.h SciTEBase.h JobQueue.h
+ SString.h Scintilla.h Extender.h FilePath.h SciTEBase.h FileWorker.h JobQueue.h
 	$(CC) $(CXXFLAGS) -D STATIC_BUILD -c $< -o $@
 
 SciTERes.o:	SciTERes.rc SciTE.h SciTE.exe.manifest
